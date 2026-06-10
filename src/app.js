@@ -6,9 +6,11 @@ const config = require("./config");
 const storage = require("./lib/storage");
 const {
   captureOptimizedHtml,
+  captureSinglePageHtml,
   captureZipBuffer,
   importUploadedFiles,
   saveOptimizedPage,
+  saveSinglePage,
   saveZipCapture
 } = require("./lib/capture");
 
@@ -27,6 +29,12 @@ app.set("views", config.viewsDir);
 app.locals.appName = config.appName;
 
 app.use(express.urlencoded({ extended: true }));
+app.use((req, res, next) => {
+  if (req.method === "GET" && req.accepts("html")) {
+    res.setHeader("cache-control", "no-store");
+  }
+  next();
+});
 app.use(express.static(config.publicDir, {
   etag: true,
   maxAge: "1h"
@@ -59,9 +67,17 @@ app.get("/library", asyncRoute(async (req, res) => {
 
 app.post("/capture", asyncRoute(async (req, res) => {
   const url = String(req.body.url || "").trim();
-  const action = req.body.action || "save-optimized";
+  const action = req.body.action || "save-single";
 
   if (action === "download-html") {
+    const page = await captureSinglePageHtml(url);
+    res.setHeader("content-type", "text/html; charset=utf-8");
+    res.setHeader("content-disposition", `attachment; filename="${downloadName(page.title, "html")}"`);
+    res.send(page.html);
+    return;
+  }
+
+  if (action === "download-optimized") {
     const page = await captureOptimizedHtml(url);
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("content-disposition", `attachment; filename="${downloadName(page.title, "html")}"`);
@@ -77,9 +93,11 @@ app.post("/capture", asyncRoute(async (req, res) => {
     return;
   }
 
-  const metadata = action === "save-with-assets"
-    ? await saveZipCapture(url)
-    : await saveOptimizedPage(url);
+  const metadata = action === "save-optimized"
+    ? await saveOptimizedPage(url)
+    : action === "save-with-assets"
+      ? await saveZipCapture(url)
+      : await saveSinglePage(url);
   res.redirect(`/reader/${metadata.id}`);
 }));
 

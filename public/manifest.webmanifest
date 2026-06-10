@@ -1,7 +1,7 @@
 {
   "name": "webpocket",
   "short_name": "webpocket",
-  "description": "Save lightweight web pages for offline reading.",
+  "description": "Save web pages for offline reading.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f6f7f2",
