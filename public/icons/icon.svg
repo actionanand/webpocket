@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="webpocket icon">
+  <rect width="512" height="512" rx="96" fill="#006d77"/>
+  <path fill="#ffffff" d="M128 152c0-22.1 17.9-40 40-40h176c22.1 0 40 17.9 40 40v208c0 22.1-17.9 40-40 40H168c-22.1 0-40-17.9-40-40V152zm54 22v172h148V174H182z"/>
+  <path fill="#f2c14e" d="M206 216h100v28H206v-28zm0 54h100v28H206v-28z"/>
+</svg>

@@ -1,0 +1,25 @@
+<%- include("partials/head", { title }) %>
+
+<section class="reader-shell">
+  <div class="reader-toolbar">
+    <a class="icon-button" href="/library" aria-label="Back to library">←</a>
+    <div class="reader-title">
+      <strong><%= page.title %></strong>
+      <% if (page.sourceUrl) { %>
+        <span><%= page.sourceUrl %></span>
+      <% } %>
+    </div>
+    <div class="reader-actions">
+      <a class="icon-button" href="/download/<%= page.id %>/html" aria-label="Download HTML">HTML</a>
+      <a class="icon-button" href="/download/<%= page.id %>/zip" aria-label="Download ZIP">ZIP</a>
+    </div>
+  </div>
+  <iframe
+    class="reader-frame"
+    title="<%= page.title %>"
+    sandbox="allow-same-origin allow-popups"
+    src="/library/<%= page.id %>/content/<%= page.contentEntry %>">
+  </iframe>
+</section>
+
+<%- include("partials/footer") %>
