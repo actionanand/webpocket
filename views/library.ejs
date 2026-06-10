@@ -1,0 +1,35 @@
+<%- include("partials/head", { title }) %>
+
+<section class="workspace">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Saved locally</p>
+      <h1>Library</h1>
+    </div>
+    <a class="button-link" href="/">Add page</a>
+  </div>
+
+  <% if (!pages.length) { %>
+    <div class="empty-state">
+      <h2>No saved pages yet</h2>
+      <p>Save a URL or import an offline HTML package to start building your pocket.</p>
+      <a class="primary button-link" href="/">Save a page</a>
+    </div>
+  <% } %>
+
+  <div class="page-list">
+    <% pages.forEach((page) => { %>
+      <article class="page-card">
+        <a href="/reader/<%= page.id %>">
+          <strong><%= page.title %></strong>
+          <% if (page.sourceUrl) { %>
+            <span><%= page.sourceUrl %></span>
+          <% } %>
+          <small><%= page.kind %> · <%= new Date(page.createdAt).toLocaleString() %></small>
+        </a>
+      </article>
+    <% }) %>
+  </div>
+</section>
+
+<%- include("partials/footer") %>
