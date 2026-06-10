@@ -20,6 +20,10 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+## Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the capture modes, button meanings, storage model, routes, and package explanations.
+
 ## Notes For Android Later
 
 The app is already shaped as a mobile-first local web app. Later you can package it with a wrapper such as Capacitor, a WebView shell, or a Trusted Web Activity depending on whether the Android app should run a local server or connect to a hosted instance.
