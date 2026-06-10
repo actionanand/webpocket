@@ -2,9 +2,9 @@
 
 <section class="workspace">
   <div class="intro">
-    <p class="eyebrow">Offline reader for low-data days</p>
-    <h1>Save a lighter copy of any readable page.</h1>
-    <p>Paste a URL, import a page you already have, then read it from this device without needing the internet.</p>
+    <p class="eyebrow">Offline reader for saved pages</p>
+    <h1>Save a web page for offline reading.</h1>
+    <p>Paste a URL, keep the page as a full single HTML file, or choose an optimized low-data copy when size matters most.</p>
   </div>
 
   <% if (error) { %>
@@ -17,7 +17,7 @@
   <section class="panel" aria-labelledby="capture-title">
     <div class="panel-heading">
       <h2 id="capture-title">Save from URL</h2>
-      <span class="pill">Low data</span>
+      <span class="pill">Full page first</span>
     </div>
     <form class="stack" action="/capture" method="post">
       <label class="field">
@@ -25,10 +25,12 @@
         <input type="url" name="url" placeholder="https://example.com/article" required inputmode="url" autocomplete="url">
       </label>
       <div class="action-grid" role="group" aria-label="Save or download">
-        <button class="primary" type="submit" name="action" value="save-optimized">Save optimized</button>
-        <button type="submit" name="action" value="save-with-assets">Save with assets</button>
-        <button type="submit" name="action" value="download-html">HTML file</button>
+        <button class="primary" type="submit" name="action" value="save-single">Save single page</button>
+        <button type="submit" name="action" value="download-html">Single HTML</button>
         <button type="submit" name="action" value="download-zip">ZIP + assets</button>
+        <button type="submit" name="action" value="save-with-assets">Save assets</button>
+        <button type="submit" name="action" value="save-optimized">Optimize save</button>
+        <button type="submit" name="action" value="download-optimized">Optimize HTML</button>
       </div>
     </form>
   </section>
@@ -64,7 +66,7 @@
           <article class="page-card">
             <a href="/reader/<%= page.id %>">
               <strong><%= page.title %></strong>
-              <span><%= page.kind %> · <%= new Date(page.createdAt).toLocaleString() %></span>
+              <span><%= page.kind %> - <%= new Date(page.createdAt).toLocaleString() %></span>
             </a>
           </article>
         <% }) %>

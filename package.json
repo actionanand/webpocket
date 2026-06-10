@@ -1,7 +1,7 @@
 {
   "name": "webpocket",
   "version": "0.1.0",
-  "description": "Save lightweight web pages for offline reading.",
+  "description": "Save web pages for offline reading.",
   "main": "src/app.js",
   "type": "commonjs",
   "scripts": {
@@ -18,7 +18,7 @@
   "author": "",
   "license": "MIT",
   "engines": {
-    "node": ">=20.0.0 <25.0.0"
+    "node": ">=20"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",

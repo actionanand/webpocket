@@ -4,13 +4,15 @@ const crypto = require("crypto");
 const dns = require("dns/promises");
 const net = require("net");
 const AdmZip = require("adm-zip");
+const cheerio = require("cheerio");
 const config = require("../config");
 const storage = require("./storage");
 const {
   absoluteUrl,
   findAssetUrls,
   optimizeSingleHtml,
-  rewriteForLocalAssets
+  readableTitle,
+  rewriteForLocalAssetsFull
 } = require("./htmlOptimizer");
 
 function assertPublicHttpUrl(rawUrl) {
@@ -96,6 +98,39 @@ async function fetchWithLimit(url, maxBytes) {
   }
 }
 
+function bufferToDataUri(buffer, contentType = "") {
+  const type = contentType.split(";")[0].trim() || "application/octet-stream";
+  return `data:${type};base64,${buffer.toString("base64")}`;
+}
+
+function cssUrlRegex() {
+  return /url\(\s*(['"]?)(?!data:|#|about:|blob:)([^'")]+)\1\s*\)/gi;
+}
+
+async function inlineCssAssets(css, cssBaseUrl, fetchAssetAsDataUri) {
+  const replacements = [];
+  let match;
+  const regex = cssUrlRegex();
+
+  while ((match = regex.exec(css)) !== null) {
+    const raw = match[2].trim();
+    const abs = absoluteUrl(raw, cssBaseUrl);
+    if (!abs || !/^https?:\/\//i.test(abs)) continue;
+    replacements.push({ original: match[0], abs });
+  }
+
+  let next = css;
+  for (const replacement of replacements) {
+    try {
+      const dataUri = await fetchAssetAsDataUri(replacement.abs);
+      next = next.split(replacement.original).join(`url("${dataUri}")`);
+    } catch {
+      next = next.split(replacement.original).join(`url("${replacement.abs}")`);
+    }
+  }
+  return next;
+}
+
 async function fetchHtml(url) {
   const publicUrl = await validateReachablePublicUrl(url);
   const response = await fetchWithLimit(publicUrl, config.limits.maxHtmlBytes);
@@ -116,9 +151,236 @@ function assetPathForUrl(url) {
   return `assets/${hash}-${name}`;
 }
 
+async function collectLocalAssets(html, finalUrl, writeAsset) {
+  const initialAssetUrls = findAssetUrls(html, finalUrl, { full: true })
+    .slice(0, config.limits.maxAssetsPerPage);
+  const assetMap = new Map();
+  let totalBytes = 0;
+
+  async function ensureAsset(assetUrl) {
+    if (assetMap.has(assetUrl)) return assetMap.get(assetUrl);
+    if (assetMap.size >= config.limits.maxAssetsPerPage) return assetUrl;
+
+    const localPath = assetPathForUrl(assetUrl);
+    assetMap.set(assetUrl, localPath);
+
+    try {
+      await validateReachablePublicUrl(assetUrl);
+      const response = await fetchWithLimit(assetUrl, config.limits.maxAssetBytes);
+      totalBytes += response.buffer.length;
+      if (totalBytes > config.limits.maxTotalAssetBytes) {
+        throw new Error("Asset budget reached.");
+      }
+
+      let buffer = response.buffer;
+      if (isCssAsset(response.contentType, assetUrl)) {
+        const css = await rewriteCssForLocalAssets(
+          response.buffer.toString("utf8"),
+          response.finalUrl || assetUrl,
+          localPath,
+          ensureAsset
+        );
+        buffer = Buffer.from(css);
+      }
+
+      await writeAsset(localPath, buffer);
+      return localPath;
+    } catch (error) {
+      assetMap.delete(assetUrl);
+      throw error;
+    }
+  }
+
+  for (const assetUrl of initialAssetUrls) {
+    try {
+      await ensureAsset(assetUrl);
+    } catch {
+      assetMap.delete(assetUrl);
+    }
+  }
+
+  return assetMap;
+}
+
+function isCssAsset(contentType, assetUrl) {
+  return contentType.includes("text/css") || /\.css(?:[?#].*)?$/i.test(assetUrl);
+}
+
+async function rewriteCssForLocalAssets(css, cssBaseUrl, cssLocalPath, ensureAsset) {
+  const replacements = [];
+  let match;
+  const regex = cssUrlRegex();
+
+  while ((match = regex.exec(css)) !== null) {
+    const raw = match[2].trim();
+    const abs = absoluteUrl(raw, cssBaseUrl);
+    if (!abs || !/^https?:\/\//i.test(abs)) continue;
+    replacements.push({ original: match[0], abs });
+  }
+
+  let next = css;
+  for (const replacement of replacements) {
+    try {
+      const nestedLocalPath = await ensureAsset(replacement.abs);
+      const relativePath = path.posix.relative(
+        path.posix.dirname(cssLocalPath),
+        nestedLocalPath
+      ) || path.posix.basename(nestedLocalPath);
+      next = next.split(replacement.original).join(`url("${relativePath}")`);
+    } catch {
+      next = next.split(replacement.original).join(`url("${replacement.abs}")`);
+    }
+  }
+  return next;
+}
+
 async function captureOptimizedHtml(url) {
   const { finalUrl, html } = await fetchHtml(url);
   return optimizeSingleHtml(html, { baseUrl: finalUrl, titleFallback: finalUrl });
+}
+
+async function captureSinglePageHtml(url) {
+  const { finalUrl, html } = await fetchHtml(url);
+  return buildSinglePageHtml(html, finalUrl);
+}
+
+async function saveSinglePage(url) {
+  const { finalUrl, html } = await fetchHtml(url);
+  const singlePage = await buildSinglePageHtml(html, finalUrl);
+  const page = await storage.createPage({
+    title: singlePage.title,
+    sourceUrl: finalUrl,
+    kind: "single-html"
+  });
+  await storage.writeContentFile(page.id, "index.html", singlePage.html);
+  return page.metadata;
+}
+
+async function buildSinglePageHtml(html, finalUrl) {
+  const $ = cheerio.load(html, { decodeEntities: false });
+  const title = readableTitle($, finalUrl);
+  const dataUriCache = new Map();
+  let totalBytes = 0;
+
+  async function fetchAssetAsDataUri(assetUrl) {
+    if (dataUriCache.has(assetUrl)) return dataUriCache.get(assetUrl);
+    await validateReachablePublicUrl(assetUrl);
+    const response = await fetchWithLimit(assetUrl, config.limits.maxAssetBytes);
+    totalBytes += response.buffer.length;
+    if (totalBytes > config.limits.maxTotalAssetBytes) {
+      throw new Error("Asset budget reached.");
+    }
+    const dataUri = bufferToDataUri(response.buffer, response.contentType);
+    dataUriCache.set(assetUrl, dataUri);
+    return dataUri;
+  }
+
+  $("base").remove();
+  $("script").remove();
+  $("meta[http-equiv]").each((_, node) => {
+    const value = String($(node).attr("http-equiv") || "").toLowerCase();
+    if (value === "refresh" || value === "content-security-policy") {
+      $(node).remove();
+    }
+  });
+  $("meta[charset]").remove();
+  $("head").prepend("<meta charset=\"utf-8\">");
+  if (!$("meta[name='viewport']").length) {
+    $("head").append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+  }
+  $("head").append(`<meta name="generator" content="webpocket single-html">`);
+
+  $("[href]").each((_, node) => {
+    const el = $(node);
+    const value = el.attr("href");
+    if (!value || value.startsWith("#")) return;
+    const abs = absoluteUrl(value, finalUrl);
+    if (abs) el.attr("href", abs);
+  });
+
+  const styleNodes = $("style").toArray();
+  for (const node of styleNodes) {
+    const el = $(node);
+    el.text(await inlineCssAssets(el.html() || "", finalUrl, fetchAssetAsDataUri));
+  }
+
+  const stylesheetLinks = $("link[rel~='stylesheet'][href]").toArray();
+  for (const node of stylesheetLinks) {
+    const el = $(node);
+    const href = absoluteUrl(el.attr("href"), finalUrl);
+    if (!href) continue;
+    try {
+      const response = await fetchWithLimit(href, config.limits.maxAssetBytes);
+      const css = await inlineCssAssets(response.buffer.toString("utf8"), response.finalUrl || href, fetchAssetAsDataUri);
+      el.replaceWith(`<style data-webpocket-source="${escapeHtml(href)}">\n${css}\n</style>`);
+    } catch {
+      el.attr("href", href);
+    }
+  }
+
+  await inlineAttributeAssets($, "img", "src", finalUrl, fetchAssetAsDataUri);
+  await inlineAttributeAssets($, "source", "src", finalUrl, fetchAssetAsDataUri);
+  await inlineAttributeAssets($, "video", "poster", finalUrl, fetchAssetAsDataUri);
+  await inlineAttributeAssets($, "link[rel~='icon']", "href", finalUrl, fetchAssetAsDataUri);
+  await inlineAttributeAssets($, "link[rel='apple-touch-icon']", "href", finalUrl, fetchAssetAsDataUri);
+  await inlineSrcsetAssets($, "img", finalUrl, fetchAssetAsDataUri);
+  await inlineSrcsetAssets($, "source", finalUrl, fetchAssetAsDataUri);
+
+  return {
+    title,
+    html: $.html()
+  };
+}
+
+async function inlineAttributeAssets($, selector, attr, baseUrl, fetchAssetAsDataUri) {
+  const nodes = $(`${selector}[${attr}]`).toArray();
+  for (const node of nodes) {
+    const el = $(node);
+    const abs = absoluteUrl(el.attr(attr), baseUrl);
+    if (!abs || !/^https?:\/\//i.test(abs)) continue;
+    try {
+      el.attr(attr, await fetchAssetAsDataUri(abs));
+    } catch {
+      el.attr(attr, abs);
+      el.attr("data-webpocket-missing-asset", "true");
+    }
+  }
+}
+
+async function inlineSrcsetAssets($, selector, baseUrl, fetchAssetAsDataUri) {
+  const nodes = $(`${selector}[srcset]`).toArray();
+  for (const node of nodes) {
+    const el = $(node);
+    const srcset = el.attr("srcset");
+    const candidates = String(srcset || "")
+      .split(",")
+      .map((candidate) => candidate.trim())
+      .filter(Boolean);
+    const next = [];
+
+    for (const candidate of candidates) {
+      const parts = candidate.split(/\s+/);
+      const abs = absoluteUrl(parts[0], baseUrl);
+      if (!abs || !/^https?:\/\//i.test(abs)) {
+        next.push(candidate);
+        continue;
+      }
+      try {
+        next.push([await fetchAssetAsDataUri(abs), ...parts.slice(1)].join(" "));
+      } catch {
+        next.push([abs, ...parts.slice(1)].join(" "));
+      }
+    }
+    if (next.length) el.attr("srcset", next.join(", "));
+  }
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 async function saveOptimizedPage(url) {
@@ -135,26 +397,12 @@ async function saveOptimizedPage(url) {
 
 async function captureZipBuffer(url) {
   const { finalUrl, html } = await fetchHtml(url);
-  const assetUrls = findAssetUrls(html, finalUrl).slice(0, config.limits.maxAssetsPerPage);
-  const assetMap = new Map();
   const zip = new AdmZip();
-  let totalBytes = 0;
+  const assetMap = await collectLocalAssets(html, finalUrl, async (localPath, buffer) => {
+    zip.addFile(localPath, buffer);
+  });
 
-  for (const assetUrl of assetUrls) {
-    try {
-      await validateReachablePublicUrl(assetUrl);
-      const response = await fetchWithLimit(assetUrl, config.limits.maxAssetBytes);
-      totalBytes += response.buffer.length;
-      if (totalBytes > config.limits.maxTotalAssetBytes) break;
-      const localPath = assetPathForUrl(assetUrl);
-      assetMap.set(assetUrl, localPath);
-      zip.addFile(localPath, response.buffer);
-    } catch {
-      // Missing assets should not prevent the reader copy from being created.
-    }
-  }
-
-  const rewritten = rewriteForLocalAssets(html, {
+  const rewritten = rewriteForLocalAssetsFull(html, {
     baseUrl: finalUrl,
     assetMap,
     titleFallback: finalUrl
@@ -182,25 +430,11 @@ async function saveZipCapture(url) {
     sourceUrl: finalUrl,
     kind: "html-with-assets"
   });
-  const assetUrls = findAssetUrls(html, finalUrl).slice(0, config.limits.maxAssetsPerPage);
-  const assetMap = new Map();
-  let totalBytes = 0;
+  const assetMap = await collectLocalAssets(html, finalUrl, async (localPath, buffer) => {
+    await storage.writeContentFile(page.id, localPath, buffer);
+  });
 
-  for (const assetUrl of assetUrls) {
-    try {
-      await validateReachablePublicUrl(assetUrl);
-      const response = await fetchWithLimit(assetUrl, config.limits.maxAssetBytes);
-      totalBytes += response.buffer.length;
-      if (totalBytes > config.limits.maxTotalAssetBytes) break;
-      const localPath = assetPathForUrl(assetUrl);
-      assetMap.set(assetUrl, localPath);
-      await storage.writeContentFile(page.id, localPath, response.buffer);
-    } catch {
-      // Keep the page readable even when a secondary asset fails.
-    }
-  }
-
-  const rewritten = rewriteForLocalAssets(html, {
+  const rewritten = rewriteForLocalAssetsFull(html, {
     baseUrl: finalUrl,
     assetMap,
     titleFallback: finalUrl
@@ -285,8 +519,10 @@ function normalizeUploadPath(originalName) {
 
 module.exports = {
   captureOptimizedHtml,
+  captureSinglePageHtml,
   captureZipBuffer,
   importUploadedFiles,
   saveOptimizedPage,
+  saveSinglePage,
   saveZipCapture
 };

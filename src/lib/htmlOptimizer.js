@@ -45,6 +45,15 @@ function removeHeavyAndTrackingNodes($) {
   ).remove();
 }
 
+function removeOfflineBreakingMeta($) {
+  $("meta[http-equiv]").each((_, node) => {
+    const value = String($(node).attr("http-equiv") || "").toLowerCase();
+    if (value === "refresh" || value === "content-security-policy") {
+      $(node).remove();
+    }
+  });
+}
+
 function rewriteLinks($, baseUrl) {
   $("[href]").each((_, node) => {
     const el = $(node);
@@ -126,6 +135,7 @@ function optimizeSingleHtml(html, { baseUrl = "", titleFallback = "Saved page" }
   const $ = cheerio.load(html, { decodeEntities: false });
   const title = readableTitle($, titleFallback);
 
+  removeOfflineBreakingMeta($);
   removeHeavyAndTrackingNodes($);
   rewriteLinks($, baseUrl);
   replaceImagesWithText($, baseUrl);
@@ -142,6 +152,7 @@ function rewriteForLocalAssets(html, { baseUrl = "", assetMap = new Map(), title
   const $ = cheerio.load(html, { decodeEntities: false });
   const title = readableTitle($, titleFallback);
 
+  removeOfflineBreakingMeta($);
   removeHeavyAndTrackingNodes($);
   rewriteLinks($, baseUrl);
 
@@ -172,7 +183,73 @@ function rewriteForLocalAssets(html, { baseUrl = "", assetMap = new Map(), title
   };
 }
 
-function findAssetUrls(html, baseUrl) {
+function rewriteForLocalAssetsFull(html, { baseUrl = "", assetMap = new Map(), titleFallback = "Saved page" } = {}) {
+  const $ = cheerio.load(html, { decodeEntities: false });
+  const title = readableTitle($, titleFallback);
+
+  removeOfflineBreakingMeta($);
+  $("base").remove();
+  $("script").remove();
+  rewriteLinks($, baseUrl);
+
+  const rewriteAttr = (selector, attr) => {
+    $(selector).each((_, node) => {
+      const el = $(node);
+      const original = el.attr(attr);
+      const abs = absoluteUrl(original, baseUrl);
+      if (abs && assetMap.has(abs)) {
+        el.attr(attr, assetMap.get(abs));
+      } else if (abs) {
+        el.attr(attr, abs);
+      }
+    });
+  };
+
+  const rewriteSrcset = (selector) => {
+    $(`${selector}[srcset]`).each((_, node) => {
+      const el = $(node);
+      const next = rewriteSrcsetValue(el.attr("srcset"), baseUrl, (abs) => assetMap.get(abs) || abs);
+      if (next) el.attr("srcset", next);
+    });
+  };
+
+  rewriteAttr("img", "src");
+  rewriteAttr("source", "src");
+  rewriteAttr("video", "poster");
+  rewriteAttr("link", "href");
+  rewriteSrcset("img");
+  rewriteSrcset("source");
+  ensureMobileMeta($);
+
+  return {
+    title,
+    html: $.html()
+  };
+}
+
+function rewriteSrcsetValue(value, baseUrl, mapUrl) {
+  if (!value) return "";
+  return value
+    .split(",")
+    .map((candidate) => {
+      const parts = candidate.trim().split(/\s+/);
+      const abs = absoluteUrl(parts[0], baseUrl);
+      if (!abs) return candidate.trim();
+      return [mapUrl(abs), ...parts.slice(1)].join(" ");
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
+function ensureMobileMeta($) {
+  $("meta[charset]").remove();
+  $("head").prepend("<meta charset=\"utf-8\">");
+  if (!$("meta[name='viewport']").length) {
+    $("head").append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+  }
+}
+
+function findAssetUrls(html, baseUrl, { full = false } = {}) {
   const $ = cheerio.load(html);
   const urls = new Set();
 
@@ -182,11 +259,26 @@ function findAssetUrls(html, baseUrl) {
   };
 
   $("img[src]").each((_, el) => add($(el).attr("src")));
+  $("img[srcset], source[srcset]").each((_, el) => {
+    String($(el).attr("srcset") || "")
+      .split(",")
+      .map((candidate) => candidate.trim().split(/\s+/)[0])
+      .forEach(add);
+  });
+  $("source[src], video[poster]").each((_, el) => {
+    add($(el).attr("src"));
+    add($(el).attr("poster"));
+  });
   $("link[href]").each((_, el) => {
     const rel = String($(el).attr("rel") || "").toLowerCase();
-    if (rel.includes("stylesheet") || rel.includes("icon")) add($(el).attr("href"));
+    if (
+      rel.includes("stylesheet") ||
+      rel.includes("icon") ||
+      (full && (rel.includes("preload") || rel.includes("apple-touch-icon")))
+    ) {
+      add($(el).attr("href"));
+    }
   });
-
   return [...urls];
 }
 
@@ -194,6 +286,8 @@ module.exports = {
   absoluteUrl,
   findAssetUrls,
   optimizeSingleHtml,
+  rewriteForLocalAssetsFull,
   rewriteForLocalAssets,
+  rewriteSrcsetValue,
   readableTitle
 };
