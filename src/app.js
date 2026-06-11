@@ -27,6 +27,7 @@ const upload = multer({
 app.set("view engine", "ejs");
 app.set("views", config.viewsDir);
 app.locals.appName = config.appName;
+app.locals.formatBytes = storage.formatBytes;
 
 app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
@@ -37,7 +38,10 @@ app.use((req, res, next) => {
 });
 app.use(express.static(config.publicDir, {
   etag: true,
-  maxAge: "1h"
+  maxAge: 0,
+  setHeaders: (res) => {
+    res.setHeader("cache-control", "no-cache");
+  }
 }));
 
 function asyncRoute(handler) {
@@ -61,7 +65,8 @@ app.get("/", asyncRoute(async (req, res) => {
 app.get("/library", asyncRoute(async (req, res) => {
   res.render("library", {
     title: "Library",
-    pages: await storage.listPages()
+    pages: await storage.listPages(),
+    notice: req.query.notice || ""
   });
 }));
 
@@ -101,9 +106,19 @@ app.post("/capture", asyncRoute(async (req, res) => {
   res.redirect(`/reader/${metadata.id}`);
 }));
 
+app.post("/pages/:id/delete", asyncRoute(async (req, res) => {
+  const page = await storage.readMetadata(req.params.id);
+  await storage.deletePage(req.params.id);
+  const next = req.body.next || "/library";
+  const notice = `${page.title} was removed and ${storage.formatBytes(page.sizeBytes)} was freed.`;
+  res.redirect(`${next}?notice=${encodeURIComponent(notice)}`);
+}));
+
 app.post("/upload", upload.array("offlineFiles", 200), asyncRoute(async (req, res) => {
   try {
-    const metadata = await importUploadedFiles(req.files);
+    const metadata = await importUploadedFiles(req.files, {
+      mode: req.body.uploadMode || "preserve-assets"
+    });
     res.redirect(`/reader/${metadata.id}`);
   } finally {
     await Promise.all((req.files || []).map((file) => fs.rm(file.path, { force: true })));

@@ -7,7 +7,11 @@
 - Save a URL as a full single HTML page with styles and fetched assets embedded.
 - Save or download an optimized low-data HTML copy when you explicitly choose optimization.
 - Download a URL as a ZIP with `index.html` and an `assets/` folder.
-- Import a single HTML file, an optimized HTML file, a ZIP archive, or an HTML folder with assets.
+- Import a single HTML file, an optimized HTML file, a ZIP archive, or a browser-saved `name.html` + `name_files/` folder.
+- Convert uploaded HTML-with-assets packages into one single HTML file.
+- Show saved page size with saved date and time.
+- Remove saved pages from the library to free storage.
+- Open the live source page in a new browser tab from saved pages.
 - Read saved pages from a local library without internet access.
 - PWA-ready shell for future Android APK/AAB packaging work.
 

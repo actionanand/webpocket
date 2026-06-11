@@ -76,7 +76,7 @@ Tradeoff: the saved page has multiple files, so it depends on webpocket serving 
 
 This saves a low-data reader-style copy into the webpocket library.
 
-The optimizer removes scripts, heavy embeds, forms, stylesheets, and replaces images with text notes. This is intentionally destructive because the goal is a smaller readable document.
+The optimizer removes scripts, common ad/sponsored blocks, heavy embeds, forms, stylesheets, and replaces images with text notes. This is intentionally destructive because the goal is a smaller readable document.
 
 Use this when:
 
@@ -141,6 +141,43 @@ storage/pages/
 ```
 
 `metadata.json` stores the page title, source URL, capture kind, entry file, and timestamps. The reader route loads this metadata and displays the saved content in an iframe.
+
+The metadata also stores `sizeBytes`, which is calculated from the files inside the saved page's `content/` folder. The library and recent-save cards display this size with the saved date and time.
+
+## Browser-Saved HTML Uploads
+
+Browsers such as Chrome commonly save pages as:
+
+```text
+name.html
+name_files/
+  image.png
+  style.css
+  other-assets...
+```
+
+webpocket supports this structure through the folder upload flow.
+
+`Import with assets` preserves the browser-saved package as HTML plus its `_files` folder. The reader serves the HTML and local folder together.
+
+`Convert to single HTML` reads the same uploaded package, finds local references such as `name_files/style.css` or `name_files/image.png`, and embeds those resources into one saved `index.html` using data URIs.
+
+This conversion works for common local references in:
+
+- Stylesheets
+- CSS `url(...)` assets
+- Images
+- `srcset` image candidates
+- Icons
+- Video posters
+
+## Removing Saved Pages
+
+Saved pages can be removed from the library or reader. Delete actions remove the whole saved page folder under `storage/pages/`, including `metadata.json`, `index.html`, and any assets. The UI asks for confirmation and reports how much storage was freed.
+
+## Live Source Links
+
+Saved pages with a `sourceUrl` expose a `Live` button. It opens the original URL in a new browser tab using `target="_blank"` and `rel="noopener noreferrer"`.
 
 ## Main Routes
 

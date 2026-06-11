@@ -2,16 +2,24 @@
 
 <section class="reader-shell">
   <div class="reader-toolbar">
-    <a class="icon-button" href="/library" aria-label="Back to library">←</a>
+    <a class="icon-button" href="/library" aria-label="Back to library">&larr;</a>
     <div class="reader-title">
       <strong><%= page.title %></strong>
       <% if (page.sourceUrl) { %>
         <span><%= page.sourceUrl %></span>
       <% } %>
+      <span><%= page.kind %> - <%= formatBytes(page.sizeBytes) %> - <%= new Date(page.createdAt).toLocaleString() %></span>
     </div>
     <div class="reader-actions">
-      <a class="icon-button" href="/download/<%= page.id %>/html" aria-label="Download HTML">HTML</a>
-      <a class="icon-button" href="/download/<%= page.id %>/zip" aria-label="Download ZIP">ZIP</a>
+      <% if (page.sourceUrl) { %>
+        <a class="toolbar-action live-action" href="<%= page.sourceUrl %>" target="_blank" rel="noopener noreferrer" aria-label="Open live page in a new tab">Open live page</a>
+      <% } %>
+      <a class="toolbar-action compact-action" href="/download/<%= page.id %>/html" aria-label="Download HTML">HTML</a>
+      <a class="toolbar-action compact-action" href="/download/<%= page.id %>/zip" aria-label="Download ZIP">ZIP</a>
+      <form action="/pages/<%= page.id %>/delete" method="post" data-confirm="Remove this saved page and free <%= formatBytes(page.sizeBytes) %>?">
+        <input type="hidden" name="next" value="/library">
+        <button class="toolbar-action remove-action" type="submit" aria-label="Remove saved page">Remove</button>
+      </form>
     </div>
   </div>
   <iframe

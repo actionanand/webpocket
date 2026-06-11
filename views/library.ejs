@@ -9,6 +9,10 @@
     <a class="button-link" href="/">Add page</a>
   </div>
 
+  <% if (notice) { %>
+    <div class="alert" role="status"><%= notice %></div>
+  <% } %>
+
   <% if (!pages.length) { %>
     <div class="empty-state">
       <h2>No saved pages yet</h2>
@@ -20,13 +24,22 @@
   <div class="page-list">
     <% pages.forEach((page) => { %>
       <article class="page-card">
-        <a href="/reader/<%= page.id %>">
+        <a class="page-card-main" href="/reader/<%= page.id %>">
           <strong><%= page.title %></strong>
           <% if (page.sourceUrl) { %>
             <span><%= page.sourceUrl %></span>
           <% } %>
-          <small><%= page.kind %> - <%= new Date(page.createdAt).toLocaleString() %></small>
+          <small><%= page.kind %> - <%= formatBytes(page.sizeBytes) %> - <%= new Date(page.createdAt).toLocaleString() %></small>
         </a>
+        <div class="card-actions">
+          <% if (page.sourceUrl) { %>
+            <a class="small-action live-action" href="<%= page.sourceUrl %>" target="_blank" rel="noopener noreferrer">Open live</a>
+          <% } %>
+          <form action="/pages/<%= page.id %>/delete" method="post" data-confirm="Remove this saved page and free <%= formatBytes(page.sizeBytes) %>?">
+            <input type="hidden" name="next" value="/library">
+            <button class="small-action remove-action" type="submit">Remove</button>
+          </form>
+        </div>
       </article>
     <% }) %>
   </div>
