@@ -162,9 +162,7 @@ confirmRemove?.addEventListener("click", () => {
     form.requestSubmit();
   } else {
     const submitEvent = new Event("submit", { bubbles: true, cancelable: true });
-    if (form.dispatchEvent(submitEvent)) {
-      HTMLFormElement.prototype.submit.call(form);
-    }
+    form.dispatchEvent(submitEvent);
   }
 });
 
@@ -177,7 +175,6 @@ document.querySelectorAll("form").forEach((form) => {
 
     const confirmation = form.dataset.confirm;
     if (confirmation && form.dataset.confirmed !== "true") {
-      event.preventDefault();
       openConfirmDialog(form, confirmation);
       return;
     }
@@ -192,8 +189,8 @@ document.querySelectorAll("form").forEach((form) => {
       message: "Please wait while webpocket fetches and prepares your offline page."
     };
 
-    event.preventDefault();
-    addSubmitterValue(form, submitter);
+    activeForm = form;
+    form.setAttribute("aria-busy", "true");
     showProcessing(copy);
     setSubmitControlsDisabled(true);
     form.setAttribute("aria-busy", "true");
@@ -201,7 +198,7 @@ document.querySelectorAll("form").forEach((form) => {
     activeForm = form;
     submitAfterPaint(form);
 
-    if (copy.download) {
+    window.requestAnimationFrame(() => {
       window.setTimeout(() => {
         hideProcessing();
         setSubmitControlsDisabled(false);
