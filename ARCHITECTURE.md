@@ -16,7 +16,7 @@ Browser UI
   -> Saved files under storage/pages/
 ```
 
-The frontend is server-rendered with EJS views in `views/`. Static files such as CSS, JavaScript, icons, the manifest, and the service worker live in `public/`.
+The frontend is server-rendered with EJS views in `views/`. Static files such as CSS, JavaScript, and icons live in `public/`.
 
 ## Why There Are Multiple Buttons
 
@@ -216,17 +216,15 @@ Used to parse and rewrite HTML on the server. It powers title extraction, asset 
 
 Used to detect content types when serving saved files from `storage/pages/`, so HTML, CSS, images, and other assets are sent with appropriate headers.
 
-## Public Assets And PWA Shell
+## Public Assets
 
 The app includes:
 
 - `public/favicon.ico`
 - `public/favicon.svg`
 - `public/icons/icon.svg`
-- `public/manifest.webmanifest`
-- `public/sw.js`
 
-The service worker caches static app shell assets only. It intentionally does not cache rendered HTML pages like `/`, because stale cached UI previously caused old button labels to stay visible after code changes.
+The app does not ship a web app manifest or service worker while it is under test, so browsers always fetch the current server-rendered UI and static assets instead of relying on an installable or cached app shell.
 
 ## Current Limitations
 
