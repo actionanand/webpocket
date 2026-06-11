@@ -6,54 +6,55 @@ const confirmOverlay = document.querySelector("[data-confirm-overlay]");
 const confirmMessage = document.querySelector("[data-confirm-message]");
 const confirmCancel = document.querySelector("[data-confirm-cancel]");
 const confirmRemove = document.querySelector("[data-confirm-remove]");
+const submitControls = document.querySelectorAll("button[type='submit'], input[type='submit']");
 
 const processingCopy = {
   "save-single": {
     title: "Saving single page",
-    message: "Fetching the page and embedding styles, images, icons, and CSS assets for offline reading."
+    message: "Fetching the web page and embedding styles, images, icons, and CSS assets for offline reading. Please wait."
   },
   "download-html": {
     title: "Preparing single HTML",
-    message: "Creating one standalone HTML file. The download should begin shortly.",
+    message: "Fetching the web page and creating one standalone HTML file. The download should begin shortly.",
     download: true
   },
   "download-zip": {
     title: "Preparing ZIP package",
-    message: "Downloading page assets and packaging them with index.html. Larger pages can take longer.",
+    message: "Fetching the web page assets and packaging them with index.html. Larger pages can take longer.",
     download: true
   },
   "save-with-assets": {
     title: "Saving page with assets",
-    message: "Fetching the page and storing its assets folder in your local webpocket library."
+    message: "Fetching the web page and storing its assets folder in your local webpocket library. Please wait."
   },
   "save-optimized": {
     title: "Optimizing page",
-    message: "Creating a smaller low-data reading copy by removing heavy page elements."
+    message: "Fetching the web page and creating a smaller low-data reading copy. Please wait."
   },
   "download-optimized": {
     title: "Preparing optimized HTML",
-    message: "Creating a smaller low-data HTML file. The download should begin shortly.",
+    message: "Fetching the web page and creating a smaller low-data HTML file. The download should begin shortly.",
     download: true
   },
   upload: {
     title: "Importing offline files",
-    message: "Reading your selected HTML, ZIP, or assets folder and adding it to the local library."
+    message: "Reading your selected HTML, ZIP, or assets folder and adding it to the local library. Please wait."
   },
   remove: {
     title: "Removing saved page",
-    message: "Deleting the saved files from local storage."
+    message: "Deleting the saved files from local storage. Please wait."
   },
   "preserve-assets": {
     title: "Importing browser-saved page",
-    message: "Keeping the HTML file and its assets folder together for offline reading."
+    message: "Keeping the HTML file and its assets folder together for offline reading. Please wait."
   },
   "single-html": {
     title: "Converting to single HTML",
-    message: "Reading local assets from the saved browser folder and embedding them into one HTML file."
+    message: "Reading local assets from the saved browser folder and embedding them into one HTML file. Please wait."
   }
 };
-let lastSubmitter = null;
 let pendingConfirmForm = null;
+let activeForm = null;
 
 fileInputs.forEach((input) => {
   input.addEventListener("change", () => {
@@ -68,8 +69,8 @@ fileInputs.forEach((input) => {
 
 function showProcessing(copy) {
   if (!processingOverlay) return;
-  processingTitle.textContent = copy.title;
-  processingMessage.textContent = copy.message;
+  if (processingTitle) processingTitle.textContent = copy.title;
+  if (processingMessage) processingMessage.textContent = copy.message;
   processingOverlay.hidden = false;
   document.body.classList.add("is-processing");
 }
@@ -92,13 +93,16 @@ function addSubmitterValue(form, submitter) {
   form.append(hidden);
 }
 
-function setControlsDisabled(form, disabled) {
-  form.querySelectorAll("button, input").forEach((control) => {
-    if (control.type === "hidden") return;
+function setSubmitControlsDisabled(disabled) {
+  submitControls.forEach((control) => {
     if (disabled) {
+      control.dataset.wasDisabled = control.disabled ? "true" : "false";
+      control.disabled = true;
       control.setAttribute("aria-disabled", "true");
     } else {
+      if (control.dataset.wasDisabled !== "true") control.disabled = false;
       control.removeAttribute("aria-disabled");
+      delete control.dataset.wasDisabled;
     }
   });
 }
@@ -107,7 +111,7 @@ function submitAfterPaint(form) {
   window.requestAnimationFrame(() => {
     window.setTimeout(() => {
       HTMLFormElement.prototype.submit.call(form);
-    }, 40);
+    }, 80);
   });
 }
 
@@ -126,6 +130,15 @@ function closeConfirmDialog() {
   confirmOverlay.hidden = true;
   document.body.classList.remove("is-confirming");
   pendingConfirmForm = null;
+}
+
+function resolveSubmitter(form, event) {
+  if (event.submitter) return event.submitter;
+  const activeElement = document.activeElement;
+  if (activeElement?.matches?.("button[type='submit'], input[type='submit']") && form.contains(activeElement)) {
+    return activeElement;
+  }
+  return form.querySelector("button[type='submit'], input[type='submit']");
 }
 
 confirmCancel?.addEventListener("click", closeConfirmDialog);
@@ -156,13 +169,11 @@ confirmRemove?.addEventListener("click", () => {
 });
 
 document.querySelectorAll("form").forEach((form) => {
-  form.addEventListener("click", (event) => {
-    const button = event.target.closest("button[type='submit']");
-    if (button && form.contains(button)) lastSubmitter = button;
-  });
-
   form.addEventListener("submit", (event) => {
-    if (form.dataset.submitting === "true") return;
+    if (activeForm) {
+      event.preventDefault();
+      return;
+    }
 
     const confirmation = form.dataset.confirm;
     if (confirmation && form.dataset.confirmed !== "true") {
@@ -172,27 +183,31 @@ document.querySelectorAll("form").forEach((form) => {
     }
     delete form.dataset.confirmed;
 
-    const submitter = event.submitter || lastSubmitter;
+    const submitter = resolveSubmitter(form, event);
     const action = form.action.includes("/delete")
       ? "remove"
       : submitter?.value || (form.enctype === "multipart/form-data" ? "upload" : "");
     const copy = processingCopy[action] || {
       title: "Processing",
-      message: "Please wait while webpocket prepares your offline page."
+      message: "Please wait while webpocket fetches and prepares your offline page."
     };
 
     event.preventDefault();
     addSubmitterValue(form, submitter);
     showProcessing(copy);
-    setControlsDisabled(form, true);
+    setSubmitControlsDisabled(true);
+    form.setAttribute("aria-busy", "true");
     form.dataset.submitting = "true";
+    activeForm = form;
     submitAfterPaint(form);
 
     if (copy.download) {
       window.setTimeout(() => {
         hideProcessing();
-        setControlsDisabled(form, false);
+        setSubmitControlsDisabled(false);
+        form.removeAttribute("aria-busy");
         delete form.dataset.submitting;
+        activeForm = null;
       }, 30000);
     }
   });
@@ -200,8 +215,6 @@ document.querySelectorAll("form").forEach((form) => {
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").then((registration) => {
-      registration.update().catch(() => {});
-    }).catch(() => {});
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
   });
 }

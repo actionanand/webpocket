@@ -1,7 +1,7 @@
-const CACHE_NAME = "webpocket-static-v3";
+const CACHE_NAME = "webpocket-static-v4";
 const SHELL_ASSETS = [
-  "/css/styles.css",
-  "/js/app.js",
+  "/css/styles.css?v=6",
+  "/js/app.js?v=6",
   "/manifest.webmanifest",
   "/favicon.ico",
   "/favicon.svg",
@@ -10,7 +10,13 @@ const SHELL_ASSETS = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS))
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(
+        SHELL_ASSETS.map((asset) =>
+          cache.add(asset).catch(() => undefined)
+        )
+      )
+    )
   );
   self.skipWaiting();
 });
@@ -22,17 +28,6 @@ self.addEventListener("activate", (event) => {
         Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))
       )
       .then(() => self.clients.claim())
-      .then(() => self.clients.matchAll({ type: "window" }))
-      .then((clients) =>
-        Promise.all(
-          clients.map((client) => {
-            if (new URL(client.url).origin === self.location.origin) {
-              return client.navigate(client.url);
-            }
-            return undefined;
-          })
-        )
-      )
   );
 });
 
