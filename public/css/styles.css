@@ -244,6 +244,8 @@ button:hover,
   border-color: var(--teal);
 }
 
+button:disabled,
+input[type="submit"]:disabled,
 [aria-disabled="true"] {
   cursor: wait;
   opacity: 0.72;
