@@ -115,6 +115,14 @@ function submitAfterPaint(form) {
   });
 }
 
+function getFormActionPath(form) {
+  const action = form.getAttribute("action") || window.location.href;
+  return new URL(action, window.location.href).pathname;
+}
+
+function getFormEncoding(form) {
+  return (form.getAttribute("enctype") || form.enctype || "").toLowerCase();
+}
 
 function submitWithLoader(form, submitter, copy) {
   addSubmitterValue(form, submitter);
@@ -212,10 +220,12 @@ document.querySelectorAll("form").forEach((form) => {
 
     event.preventDefault();
     const submitter = resolveSubmitter(form, event);
-    const action = form.action.includes("/delete")
+    const formActionPath = getFormActionPath(form);
+    const formEncoding = getFormEncoding(form);
+    const processingAction = formActionPath.includes("/delete")
       ? "remove"
-      : submitter?.value || (form.enctype === "multipart/form-data" ? "upload" : "");
-    const copy = processingCopy[action] || {
+      : submitter?.value || (formEncoding === "multipart/form-data" ? "upload" : "");
+    const copy = processingCopy[processingAction] || {
       title: "Processing",
       message: "Please wait while webpocket fetches and prepares your offline page."
     };

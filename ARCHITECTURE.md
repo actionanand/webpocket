@@ -224,7 +224,7 @@ The app includes:
 - `public/favicon.svg`
 - `public/icons/icon.svg`
 
-The app does not ship a web app manifest or service worker while it is under test, so browsers always fetch the current server-rendered UI and static assets instead of relying on an installable or cached app shell.
+The app does not ship a web app manifest or caching service worker while it is under test, so browsers always fetch the current server-rendered UI and static assets instead of relying on an installable or cached app shell. During this transition, `/sw.js` is served only as a no-cache removal shim for browsers that already registered the previous service worker.
 
 ## Current Limitations
 

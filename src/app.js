@@ -30,12 +30,42 @@ app.locals.appName = config.appName;
 app.locals.formatBytes = storage.formatBytes;
 
 app.use(express.urlencoded({ extended: true }));
+
+function isDocumentRequest(req) {
+  if (req.method !== "GET") return false;
+  const fetchDestination = req.get("sec-fetch-dest");
+  if (fetchDestination) return fetchDestination === "document";
+  return Boolean(req.accepts("html") && !path.extname(req.path));
+}
+
 app.use((req, res, next) => {
-  if (req.method === "GET" && req.accepts("html")) {
+  if (isDocumentRequest(req)) {
     res.setHeader("cache-control", "no-store");
+    res.setHeader("Clear-Site-Data", '"cache", "storage"');
   }
   next();
 });
+
+app.get("/sw.js", (req, res) => {
+  res.setHeader("content-type", "application/javascript; charset=utf-8");
+  res.setHeader("cache-control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.send(`
+self.addEventListener("install", () => {
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((key) => caches.delete(key)));
+    await self.registration.unregister();
+    const clients = await self.clients.matchAll({ type: "window" });
+    await Promise.all(clients.map((client) => client.navigate(client.url)));
+  })());
+});
+`);
+});
+
 app.use(express.static(config.publicDir, {
   etag: true,
   maxAge: 0,
