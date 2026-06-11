@@ -115,6 +115,27 @@ function submitAfterPaint(form) {
   });
 }
 
+
+function submitWithLoader(form, submitter, copy) {
+  addSubmitterValue(form, submitter);
+  activeForm = form;
+  form.setAttribute("aria-busy", "true");
+  form.dataset.submitting = "true";
+  showProcessing(copy);
+  setSubmitControlsDisabled(true);
+  submitAfterPaint(form);
+
+  window.requestAnimationFrame(() => {
+    window.setTimeout(() => {
+      hideProcessing();
+      setSubmitControlsDisabled(false);
+      form.removeAttribute("aria-busy");
+      delete form.dataset.submitting;
+      activeForm = null;
+    }, copy.download ? 3000 : 30000);
+  });
+}
+
 function openConfirmDialog(form, message) {
   if (!confirmOverlay || !confirmMessage || !confirmRemove) return false;
   pendingConfirmForm = form;
@@ -175,11 +196,21 @@ document.querySelectorAll("form").forEach((form) => {
 
     const confirmation = form.dataset.confirm;
     if (confirmation && form.dataset.confirmed !== "true") {
-      openConfirmDialog(form, confirmation);
+      event.preventDefault();
+      if (openConfirmDialog(form, confirmation)) return;
+      if (!window.confirm(confirmation)) return;
+      form.dataset.confirmed = "true";
+      if (typeof form.requestSubmit === "function") {
+        form.requestSubmit();
+      } else {
+        const submitEvent = new Event("submit", { bubbles: true, cancelable: true });
+        form.dispatchEvent(submitEvent);
+      }
       return;
     }
     delete form.dataset.confirmed;
 
+    event.preventDefault();
     const submitter = resolveSubmitter(form, event);
     const action = form.action.includes("/delete")
       ? "remove"
@@ -189,29 +220,22 @@ document.querySelectorAll("form").forEach((form) => {
       message: "Please wait while webpocket fetches and prepares your offline page."
     };
 
-    activeForm = form;
-    form.setAttribute("aria-busy", "true");
-    showProcessing(copy);
-    setSubmitControlsDisabled(true);
-    form.setAttribute("aria-busy", "true");
-    form.dataset.submitting = "true";
-    activeForm = form;
-    submitAfterPaint(form);
-
-    window.requestAnimationFrame(() => {
-      window.setTimeout(() => {
-        hideProcessing();
-        setSubmitControlsDisabled(false);
-        form.removeAttribute("aria-busy");
-        delete form.dataset.submitting;
-        activeForm = null;
-      }, 30000);
-    }
+    submitWithLoader(form, submitter, copy);
   });
 });
 
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
-  });
+function removeExistingServiceWorkers() {
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.getRegistrations()
+      .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+      .catch(() => {});
+  }
+
+  if ("caches" in window) {
+    caches.keys()
+      .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+      .catch(() => {});
+  }
 }
+
+window.addEventListener("load", removeExistingServiceWorkers);
