@@ -244,6 +244,10 @@ button:hover,
   border-color: var(--teal);
 }
 
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled,
 [aria-disabled="true"] {
   cursor: wait;
   opacity: 0.72;
@@ -499,11 +503,11 @@ button:hover,
 .processing-overlay {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 1000;
   display: grid;
-  align-items: end;
+  place-items: center;
   padding: 16px;
-  background: rgba(23, 33, 38, 0.18);
+  background: rgba(23, 33, 38, 0.48);
 }
 
 .processing-overlay[hidden] {
@@ -514,19 +518,19 @@ button:hover,
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 14px;
-  width: min(520px, 100%);
+  width: min(560px, 100%);
   margin: 0 auto;
   border: 1px solid #cdd8d4;
-  border-radius: 8px;
-  padding: 16px;
+  border-radius: 12px;
+  padding: 20px;
   background: var(--surface);
-  box-shadow: var(--shadow);
+  box-shadow: 0 24px 72px rgba(23, 33, 38, 0.28);
 }
 
 .processing-card strong {
   display: block;
-  margin-bottom: 4px;
-  font-size: 1rem;
+  margin-bottom: 6px;
+  font-size: 1.1rem;
 }
 
 .processing-card p {
@@ -537,12 +541,23 @@ button:hover,
 }
 
 .processing-spinner {
-  width: 30px;
-  height: 30px;
-  border: 3px solid #d7e5e2;
+  width: 34px;
+  height: 34px;
+  border: 4px solid #d7e5e2;
   border-top-color: var(--teal);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+body.is-processing {
+  cursor: wait;
+  overflow: hidden;
+}
+
+body.is-processing main,
+body.is-processing .app-bar {
+  pointer-events: none;
+  user-select: none;
 }
 
 .confirm-overlay {
@@ -652,9 +667,6 @@ button:hover,
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .processing-overlay {
-    align-items: center;
-  }
 
   .confirm-overlay {
     align-items: center;
