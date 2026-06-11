@@ -6,43 +6,43 @@ const confirmOverlay = document.querySelector("[data-confirm-overlay]");
 const confirmMessage = document.querySelector("[data-confirm-message]");
 const confirmCancel = document.querySelector("[data-confirm-cancel]");
 const confirmRemove = document.querySelector("[data-confirm-remove]");
-const pageControls = document.querySelectorAll("button, input, select, textarea");
+const submitControls = document.querySelectorAll("button[type='submit'], input[type='submit']");
 
 const processingCopy = {
   "save-single": {
     title: "Saving single page",
-    message: "Fetching the web page now. Please keep this tab open while webpocket embeds the page for offline reading."
+    message: "Fetching the web page and embedding styles, images, icons, and CSS assets for offline reading. Please wait."
   },
   "download-html": {
     title: "Preparing single HTML",
-    message: "Fetching the web page now. Your standalone HTML download will start as soon as it is ready.",
+    message: "Fetching the web page and creating one standalone HTML file. The download should begin shortly.",
     download: true
   },
   "download-zip": {
     title: "Preparing ZIP package",
-    message: "Fetching the web page assets now. Large pages may take a minute before the ZIP download starts.",
+    message: "Fetching the web page assets and packaging them with index.html. Larger pages can take longer.",
     download: true
   },
   "save-with-assets": {
     title: "Saving page with assets",
-    message: "Fetching the web page now. webpocket is storing the HTML and asset folder in your local library."
+    message: "Fetching the web page and storing its assets folder in your local webpocket library. Please wait."
   },
   "save-optimized": {
     title: "Optimizing page",
-    message: "Fetching the web page now. webpocket is creating a smaller low-data reading copy."
+    message: "Fetching the web page and creating a smaller low-data reading copy. Please wait."
   },
   "download-optimized": {
     title: "Preparing optimized HTML",
-    message: "Fetching the web page now. Your optimized HTML download will start as soon as it is ready.",
+    message: "Fetching the web page and creating a smaller low-data HTML file. The download should begin shortly.",
     download: true
   },
   upload: {
     title: "Importing offline files",
-    message: "Reading your selected HTML, ZIP, or assets folder now. Please keep this tab open."
+    message: "Reading your selected HTML, ZIP, or assets folder and adding it to the local library. Please wait."
   },
   remove: {
     title: "Removing saved page",
-    message: "Deleting the saved files from local storage now."
+    message: "Deleting the saved files from local storage. Please wait."
   },
   "preserve-assets": {
     title: "Importing browser-saved page",
@@ -81,9 +81,20 @@ function hideProcessing() {
   document.body.classList.remove("is-processing");
 }
 
-function setPageControlsDisabled(disabled) {
-  pageControls.forEach((control) => {
-    if (control.type === "hidden") return;
+function addSubmitterValue(form, submitter) {
+  if (!submitter?.name) return;
+  const existing = form.querySelector(`input[type="hidden"][name="${submitter.name}"][data-submit-value]`);
+  if (existing) existing.remove();
+  const hidden = document.createElement("input");
+  hidden.type = "hidden";
+  hidden.name = submitter.name;
+  hidden.value = submitter.value;
+  hidden.dataset.submitValue = "true";
+  form.append(hidden);
+}
+
+function setSubmitControlsDisabled(disabled) {
+  submitControls.forEach((control) => {
     if (disabled) {
       control.dataset.wasDisabled = control.disabled ? "true" : "false";
       control.disabled = true;
@@ -96,53 +107,12 @@ function setPageControlsDisabled(disabled) {
   });
 }
 
-function resolveSubmitter(form, event) {
-  if (event.submitter) return event.submitter;
-  const activeElement = document.activeElement;
-  if (activeElement?.matches?.("button[type='submit'], input[type='submit']") && form.contains(activeElement)) {
-    return activeElement;
-  }
-  return form.querySelector("button[type='submit'], input[type='submit']");
-}
-
-function formPayload(form, submitter) {
-  const formData = new FormData(form);
-  if (submitter?.name) {
-    formData.set(submitter.name, submitter.value);
-  }
-  if (form.enctype === "multipart/form-data") return formData;
-  return new URLSearchParams(formData);
-}
-
-function filenameFromDisposition(disposition) {
-  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(disposition || "");
-  if (utf8Match) return decodeURIComponent(utf8Match[1].replace(/['"]/g, ""));
-  const filenameMatch = /filename="?([^";]+)"?/i.exec(disposition || "");
-  return filenameMatch ? filenameMatch[1] : "webpocket-download";
-}
-
-function triggerDownload(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function resetActiveForm(form) {
-  hideProcessing();
-  setPageControlsDisabled(false);
-  form.removeAttribute("aria-busy");
-  activeForm = null;
-}
-
-function showProcessingError(form, message) {
-  if (processingTitle) processingTitle.textContent = "Could not finish request";
-  if (processingMessage) processingMessage.textContent = message || "Something went wrong. Please try again.";
-  window.setTimeout(() => resetActiveForm(form), 2500);
+function submitAfterPaint(form) {
+  window.requestAnimationFrame(() => {
+    window.setTimeout(() => {
+      HTMLFormElement.prototype.submit.call(form);
+    }, 80);
+  });
 }
 
 function openConfirmDialog(form, message) {
@@ -162,46 +132,13 @@ function closeConfirmDialog() {
   pendingConfirmForm = null;
 }
 
-async function submitWithOverlay(form, submitter, copy) {
-  const response = await fetch(form.action, {
-    method: form.method || "GET",
-    body: formPayload(form, submitter),
-    credentials: "same-origin"
-  });
-
-  const disposition = response.headers.get("content-disposition") || "";
-  const isAttachment = /attachment/i.test(disposition);
-
-  if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}.`);
+function resolveSubmitter(form, event) {
+  if (event.submitter) return event.submitter;
+  const activeElement = document.activeElement;
+  if (activeElement?.matches?.("button[type='submit'], input[type='submit']") && form.contains(activeElement)) {
+    return activeElement;
   }
-
-  if (copy.download && isAttachment) {
-    triggerDownload(await response.blob(), filenameFromDisposition(disposition));
-    window.setTimeout(() => resetActiveForm(form), 800);
-    return;
-  }
-
-  if (response.redirected) {
-    window.location.assign(response.url);
-    return;
-  }
-
-  window.location.reload();
-}
-
-function forgetServiceWorkers() {
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.getRegistrations()
-      .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
-      .catch(() => undefined);
-  }
-
-  if ("caches" in window) {
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => key.startsWith("webpocket-")).map((key) => caches.delete(key))))
-      .catch(() => undefined);
-  }
+  return form.querySelector("button[type='submit'], input[type='submit']");
 }
 
 confirmCancel?.addEventListener("click", closeConfirmDialog);
@@ -231,8 +168,10 @@ confirmRemove?.addEventListener("click", () => {
 
 document.querySelectorAll("form").forEach((form) => {
   form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (activeForm) return;
+    if (activeForm) {
+      event.preventDefault();
+      return;
+    }
 
     const confirmation = form.dataset.confirm;
     if (confirmation && form.dataset.confirmed !== "true") {
@@ -253,16 +192,26 @@ document.querySelectorAll("form").forEach((form) => {
     activeForm = form;
     form.setAttribute("aria-busy", "true");
     showProcessing(copy);
-    setPageControlsDisabled(true);
+    setSubmitControlsDisabled(true);
+    form.setAttribute("aria-busy", "true");
+    form.dataset.submitting = "true";
+    activeForm = form;
+    submitAfterPaint(form);
 
     window.requestAnimationFrame(() => {
       window.setTimeout(() => {
-        submitWithOverlay(form, submitter, copy).catch((error) => {
-          showProcessingError(form, error.message);
-        });
-      }, 120);
-    });
+        hideProcessing();
+        setSubmitControlsDisabled(false);
+        form.removeAttribute("aria-busy");
+        delete form.dataset.submitting;
+        activeForm = null;
+      }, 30000);
+    }
   });
 });
 
-window.addEventListener("load", forgetServiceWorkers);
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}

@@ -245,9 +245,7 @@ button:hover,
 }
 
 button:disabled,
-input:disabled,
-select:disabled,
-textarea:disabled,
+input[type="submit"]:disabled,
 [aria-disabled="true"] {
   cursor: wait;
   opacity: 0.72;
