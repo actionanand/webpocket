@@ -8,8 +8,22 @@
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icons/icon.svg">
-    <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="stylesheet" href="/css/styles.css?v=5">
+    <script>
+      (() => {
+        if ("serviceWorker" in navigator) {
+          navigator.serviceWorker.getRegistrations()
+            .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+            .catch(() => {});
+        }
+
+        if ("caches" in window) {
+          caches.keys()
+            .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+            .catch(() => {});
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="/css/styles.css?v=6">
   </head>
   <body>
     <header class="app-bar">
