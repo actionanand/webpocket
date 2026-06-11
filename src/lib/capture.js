@@ -105,11 +105,11 @@ function stringifyHeaderValue(value) {
   return JSON.stringify(value);
 }
 
-
-function headerValueFromTemplate(value, localStorageEntries) {
+function headerValueFromTemplate(value, storageEntries) {
   const stringValue = stringifyHeaderValue(value);
-  return stringValue.replace(/\{\{\s*(?:localStorage\.)?([\w.-]+)\s*\}\}/g, (_, key) => {
-    return Object.prototype.hasOwnProperty.call(localStorageEntries, key) ? localStorageEntries[key] : "";
+  return stringValue.replace(/\{\{\s*(?:(localStorage|sessionStorage)\.)?([\w.-]+)\s*\}\}/g, (_, storageType, key) => {
+    const scopedEntries = storageType ? storageEntries[storageType] : storageEntries.all;
+    return Object.prototype.hasOwnProperty.call(scopedEntries, key) ? scopedEntries[key] : "";
   });
 }
 
@@ -120,24 +120,40 @@ function normalizeCookieHeader(cookies) {
   return raw;
 }
 
-function localStorageEntriesFromJson(rawJson) {
-  const parsed = parseJsonObject(rawJson, "Local storage JSON");
-  return Object.fromEntries(Object.entries(parsed).map(([key, value]) => [
-    String(key),
-    typeof value === "string" ? value : JSON.stringify(value)
-  ]));
+function storageValueToString(value) {
+  if (typeof value === "string") return value;
+  if (value === null || typeof value === "undefined") return "";
+  return JSON.stringify(value);
 }
 
-function findTokenInLocalStorage(localStorageEntries) {
+function storageEntryFromPair(key, value) {
+  const normalizedKey = String(key || "").trim();
+  if (!normalizedKey) return {};
+  return { [normalizedKey]: storageValueToString(value) };
+}
+
+function buildStorageEntries(input = {}) {
+  const localStorageEntries = storageEntryFromPair(input.localStorageKey, input.localStorageValue);
+  const sessionStorageEntries = storageEntryFromPair(input.sessionStorageKey, input.sessionStorageValue);
+  return {
+    localStorage: localStorageEntries,
+    sessionStorage: sessionStorageEntries,
+    all: { ...localStorageEntries, ...sessionStorageEntries }
+  };
+}
+
+function findTokenInStorage(storageEntries) {
   const tokenKeyPattern = /(^|[_-])(access[_-]?token|auth[_-]?token|id[_-]?token|jwt|token)([_-]|$)/i;
-  for (const [key, value] of Object.entries(localStorageEntries)) {
-    if (tokenKeyPattern.test(key) && String(value || "").trim()) return String(value).trim();
+  for (const entries of [storageEntries.localStorage, storageEntries.sessionStorage]) {
+    for (const [key, value] of Object.entries(entries)) {
+      if (tokenKeyPattern.test(key) && String(value || "").trim()) return String(value).trim();
+    }
   }
   return "";
 }
 
 function buildCaptureOptions(input = {}) {
-  const localStorageEntries = localStorageEntriesFromJson(input.localStorageJson || "");
+  const storageEntries = buildStorageEntries(input);
   const customHeaders = parseJsonObject(input.headersJson || "", "Request headers JSON");
   const headers = {};
 
@@ -145,10 +161,10 @@ function buildCaptureOptions(input = {}) {
     const normalized = normalizeHeaderName(name);
     if (!normalized) continue;
     if (["host", "connection", "content-length", "transfer-encoding"].includes(normalized)) continue;
-    headers[normalized] = headerValueFromTemplate(value, localStorageEntries);
+    headers[normalized] = headerValueFromTemplate(value, storageEntries);
   }
 
-  const token = String(input.bearerToken || "").trim() || findTokenInLocalStorage(localStorageEntries);
+  const token = String(input.bearerToken || "").trim() || findTokenInStorage(storageEntries);
   if (token && !headers.authorization) {
     headers.authorization = /^bearer\s+/i.test(token) ? token : `Bearer ${token}`;
   }
@@ -158,7 +174,8 @@ function buildCaptureOptions(input = {}) {
 
   return {
     headers,
-    localStorageEntries,
+    localStorageEntries: storageEntries.localStorage,
+    sessionStorageEntries: storageEntries.sessionStorage,
     sendAuthToAllHosts: input.sendAuthToAllHosts === true || input.sendAuthToAllHosts === "on"
   };
 }

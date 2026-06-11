@@ -129,7 +129,7 @@ The optimizer creates a smaller reading copy by stripping heavy or interactive e
 
 Implemented in `src/app.js` and `src/lib/capture.js`.
 
-The capture form can accept a bearer token, raw cookie header, request headers JSON, and local-storage-style JSON. `src/app.js` converts those fields into capture options for every URL capture/download action. `src/lib/capture.js` validates the JSON, blocks unsafe hop-by-hop headers, can derive `Authorization: Bearer ...` from token-like local storage keys, and lets custom header values reference local storage values with templates such as `{{localStorage.accessToken}}`.
+The capture form can accept a bearer token, raw cookie header, request headers JSON, plus local storage and session storage key/value pairs. `src/app.js` converts those fields into capture options for every URL capture/download action. `src/lib/capture.js` validates the header JSON, blocks unsafe hop-by-hop headers, can derive `Authorization: Bearer ...` from token-like storage keys, and lets custom header values reference storage values with templates such as `{{localStorage.accessToken}}` or `{{sessionStorage.sessionToken}}`.
 
 By default, these authenticated headers are sent only to the requested page origin and same-origin assets. The cross-origin assets checkbox intentionally broadens that behavior for trusted domains, such as private asset CDNs, where the same token is required.
 

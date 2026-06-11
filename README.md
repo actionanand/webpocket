@@ -7,7 +7,7 @@
 - Save a URL as a full single HTML page with styles and fetched assets embedded.
 - Save or download an optimized low-data HTML copy when you explicitly choose optimization.
 - Download a URL as a ZIP with `index.html` and an `assets/` folder.
-- Capture login-protected pages by sending a bearer token, cookies, custom request headers, or local-storage-style token JSON with the save request.
+- Capture login-protected pages by sending a bearer token, cookies, custom request headers, or storage key/value tokens with the save request.
 - Import a single HTML file, an optimized HTML file, a ZIP archive, or a browser-saved `name.html` + `name_files/` folder.
 - Convert uploaded HTML-with-assets packages into one single HTML file.
 - Show saved page size with saved date and time.
@@ -42,7 +42,10 @@ Open **Authenticated page options** on the home page when a URL requires a login
 - a bearer token, which is sent as `Authorization: Bearer ...`;
 - a raw `Cookie` header such as `session=...; csrf=...`;
 - request headers as a JSON object;
-- local storage JSON such as `{ "accessToken": "..." }`. Token-like local storage keys are automatically used as bearer tokens when the bearer-token field is empty. Header values can also reference them with templates like `Bearer {{localStorage.accessToken}}`.
+- a local storage key and value, such as key `accessToken` and its token value;
+- a session storage key and value, such as key `sessionToken` and its token value.
+
+Token-like local/session storage keys are automatically used as bearer tokens when the bearer-token field is empty. Header values can also reference them with templates like `Bearer {{localStorage.accessToken}}` or `Bearer {{sessionStorage.sessionToken}}`.
 
 For safety, auth headers are sent only to the target page origin and same-origin assets unless you enable the cross-origin assets checkbox for trusted domains.
 

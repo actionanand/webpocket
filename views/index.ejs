@@ -26,7 +26,7 @@
       </label>
       <details class="auth-options">
         <summary>Authenticated page options</summary>
-        <p class="field-help">Use these for pages that require login. Values are only applied to this capture request; local storage token keys are auto-used as bearer tokens, and {{localStorage.key}} templates work in custom headers. By default auth is sent to the page host and same-origin assets only.</p>
+        <p class="field-help">Use these for pages that require login. Values are only applied to this capture request; token-like storage keys are auto-used as bearer tokens, and {{localStorage.key}} or {{sessionStorage.key}} templates work in custom headers. By default auth is sent to the page host and same-origin assets only.</p>
         <div class="auth-grid">
           <label class="field">
             <span>Bearer token</span>
@@ -37,13 +37,29 @@
             <input type="password" name="cookies" placeholder="session=...; csrf=..." autocomplete="off" spellcheck="false">
           </label>
         </div>
+        <div class="storage-pair" aria-label="Local storage key and value">
+          <label class="field">
+            <span>Local storage key</span>
+            <input type="text" name="localStorageKey" placeholder="accessToken" autocomplete="off" spellcheck="false">
+          </label>
+          <label class="field">
+            <span>Local storage value</span>
+            <input type="password" name="localStorageValue" placeholder="token or JSON value" autocomplete="off" spellcheck="false">
+          </label>
+        </div>
+        <div class="storage-pair" aria-label="Session storage key and value">
+          <label class="field">
+            <span>Session storage key</span>
+            <input type="text" name="sessionStorageKey" placeholder="sessionToken" autocomplete="off" spellcheck="false">
+          </label>
+          <label class="field">
+            <span>Session storage value</span>
+            <input type="password" name="sessionStorageValue" placeholder="token or JSON value" autocomplete="off" spellcheck="false">
+          </label>
+        </div>
         <label class="field">
           <span>Request headers JSON</span>
           <textarea name="headersJson" rows="4" placeholder='{ "authorization": "Bearer {{localStorage.accessToken}}", "x-api-key": "..." }' spellcheck="false"></textarea>
-        </label>
-        <label class="field">
-          <span>Local storage JSON</span>
-          <textarea name="localStorageJson" rows="4" placeholder='{ "accessToken": "...", "user": { "id": 123 } }' spellcheck="false"></textarea>
         </label>
         <label class="checkbox-field">
           <input type="checkbox" name="sendAuthToAllHosts">

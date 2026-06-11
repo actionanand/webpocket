@@ -108,7 +108,10 @@ app.post("/capture", asyncRoute(async (req, res) => {
     bearerToken: req.body.bearerToken,
     cookies: req.body.cookies,
     headersJson: req.body.headersJson,
-    localStorageJson: req.body.localStorageJson,
+    localStorageKey: req.body.localStorageKey,
+    localStorageValue: req.body.localStorageValue,
+    sessionStorageKey: req.body.sessionStorageKey,
+    sessionStorageValue: req.body.sessionStorageValue,
     sendAuthToAllHosts: req.body.sendAuthToAllHosts
   });
 
