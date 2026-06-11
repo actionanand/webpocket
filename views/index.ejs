@@ -51,7 +51,10 @@
         <span class="file-title">Choose assets folder</span>
         <span class="file-subtitle" data-file-label>Use this when your HTML file and assets are already in one folder.</span>
       </label>
-      <button class="primary" type="submit">Import and read</button>
+      <div class="action-grid">
+        <button class="primary" type="submit" name="uploadMode" value="preserve-assets">Import with assets</button>
+        <button type="submit" name="uploadMode" value="single-html">Convert to single HTML</button>
+      </div>
     </form>
   </section>
 
@@ -64,9 +67,9 @@
       <div class="page-list compact">
         <% pages.forEach((page) => { %>
           <article class="page-card">
-            <a href="/reader/<%= page.id %>">
+            <a class="page-card-main" href="/reader/<%= page.id %>">
               <strong><%= page.title %></strong>
-              <span><%= page.kind %> - <%= new Date(page.createdAt).toLocaleString() %></span>
+              <span><%= page.kind %> - <%= formatBytes(page.sizeBytes) %> - <%= new Date(page.createdAt).toLocaleString() %></span>
             </a>
           </article>
         <% }) %>

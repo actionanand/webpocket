@@ -5,6 +5,7 @@ const dns = require("dns/promises");
 const net = require("net");
 const AdmZip = require("adm-zip");
 const cheerio = require("cheerio");
+const mime = require("mime-types");
 const config = require("../config");
 const storage = require("./storage");
 const {
@@ -253,7 +254,7 @@ async function saveSinglePage(url) {
     kind: "single-html"
   });
   await storage.writeContentFile(page.id, "index.html", singlePage.html);
-  return page.metadata;
+  return storage.updatePageSize(page.id);
 }
 
 async function buildSinglePageHtml(html, finalUrl) {
@@ -392,7 +393,7 @@ async function saveOptimizedPage(url) {
     kind: "optimized-html"
   });
   await storage.writeContentFile(page.id, "index.html", optimized.html);
-  return page.metadata;
+  return storage.updatePageSize(page.id);
 }
 
 async function captureZipBuffer(url) {
@@ -443,21 +444,21 @@ async function saveZipCapture(url) {
   page.metadata.sourceUrl = finalUrl;
   await storage.writeContentFile(page.id, "index.html", rewritten.html);
   await storage.writeMetadata(page.id, page.metadata);
-  return page.metadata;
+  return storage.updatePageSize(page.id);
 }
 
-async function importUploadedFiles(files) {
+async function importUploadedFiles(files, { mode = "preserve-assets" } = {}) {
   if (!files || !files.length) throw new Error("Choose an HTML file, ZIP, or folder to import.");
   const zipFile = files.find((file) => /\.zip$/i.test(file.originalname));
-  if (zipFile && files.length === 1) return importZip(zipFile.path);
-  return importHtmlFiles(files);
+  if (zipFile && files.length === 1) return importZip(zipFile.path, { mode });
+  return importHtmlFiles(files, { mode });
 }
 
 function zipEntryIsSafe(entryName) {
   return entryName && !entryName.includes("..") && !path.isAbsolute(entryName);
 }
 
-async function importZip(zipPath) {
+async function importZip(zipPath, { mode = "preserve-assets" } = {}) {
   const zip = new AdmZip(zipPath);
   const entries = zip.getEntries().filter((entry) => !entry.isDirectory && zipEntryIsSafe(entry.entryName));
   const htmlEntry =
@@ -465,6 +466,16 @@ async function importZip(zipPath) {
     entries.find((entry) => /\.html?$/i.test(entry.entryName));
 
   if (!htmlEntry) throw new Error("The ZIP does not contain an HTML file.");
+
+  const records = entries.map((entry) => ({
+    relativePath: normalizeUploadPath(entry.entryName),
+    buffer: entry.getData()
+  }));
+  const htmlRecord = records.find((record) => record.relativePath === normalizeUploadPath(htmlEntry.entryName));
+
+  if (mode === "single-html") {
+    return importRecordsAsSingleHtml(records, htmlRecord);
+  }
 
   const page = await storage.createPage({
     title: path.basename(htmlEntry.entryName),
@@ -480,32 +491,166 @@ async function importZip(zipPath) {
   const optimized = optimizeSingleHtml(html, { titleFallback: path.basename(htmlEntry.entryName) });
   page.metadata.title = optimized.title;
   await storage.writeMetadata(page.id, page.metadata);
-  return page.metadata;
+  return storage.updatePageSize(page.id);
 }
 
-async function importHtmlFiles(files) {
-  const htmlFile =
-    files.find((file) => /\.html?$/i.test(file.originalname)) ||
-    files.find((file) => /text\/html/i.test(file.mimetype || ""));
+async function importHtmlFiles(files, { mode = "preserve-assets" } = {}) {
+  const records = await Promise.all(files.map(async (file) => ({
+    relativePath: normalizeUploadPath(file.originalname),
+    mimetype: file.mimetype || "",
+    buffer: await fs.readFile(file.path)
+  })));
 
-  if (!htmlFile) throw new Error("No HTML file was found in the upload.");
+  const htmlRecord =
+    records.find((record) => /\.html?$/i.test(record.relativePath)) ||
+    records.find((record) => /text\/html/i.test(record.mimetype || ""));
 
-  const page = await storage.createPage({
-    title: path.basename(htmlFile.originalname),
-    kind: files.length > 1 ? "imported-folder" : "imported-html",
-    contentEntry: normalizeUploadPath(htmlFile.originalname)
-  });
+  if (!htmlRecord) throw new Error("No HTML file was found in the upload.");
 
-  for (const file of files) {
-    const relativePath = normalizeUploadPath(file.originalname);
-    await storage.writeContentFile(page.id, relativePath, await fs.readFile(file.path));
+  if (mode === "single-html") {
+    return importRecordsAsSingleHtml(records, htmlRecord);
   }
 
-  const html = await fs.readFile(htmlFile.path, "utf8");
-  const optimized = optimizeSingleHtml(html, { titleFallback: path.basename(htmlFile.originalname) });
+  const page = await storage.createPage({
+    title: path.basename(htmlRecord.relativePath),
+    kind: files.length > 1 ? "imported-folder" : "imported-html",
+    contentEntry: htmlRecord.relativePath
+  });
+
+  for (const record of records) {
+    await storage.writeContentFile(page.id, record.relativePath, record.buffer);
+  }
+
+  const html = htmlRecord.buffer.toString("utf8");
+  const optimized = optimizeSingleHtml(html, { titleFallback: path.basename(htmlRecord.relativePath) });
   page.metadata.title = optimized.title;
   await storage.writeMetadata(page.id, page.metadata);
-  return page.metadata;
+  return storage.updatePageSize(page.id);
+}
+
+async function importRecordsAsSingleHtml(records, htmlRecord) {
+  const html = htmlRecord.buffer.toString("utf8");
+  const converted = await buildSinglePageFromLocalPackage(html, htmlRecord.relativePath, records);
+  const page = await storage.createPage({
+    title: converted.title,
+    kind: "imported-single-html",
+    contentEntry: "index.html"
+  });
+  await storage.writeContentFile(page.id, "index.html", converted.html);
+  return storage.updatePageSize(page.id);
+}
+
+async function buildSinglePageFromLocalPackage(html, htmlEntryPath, records) {
+  const $ = cheerio.load(html, { decodeEntities: false });
+  const title = readableTitle($, path.basename(htmlEntryPath));
+  const recordMap = new Map(records.map((record) => [normalizeUploadPath(record.relativePath), record]));
+
+  const getRecord = (resource, baseEntryPath) => {
+    const resolved = resolveLocalResourcePath(resource, baseEntryPath);
+    if (!resolved) return null;
+    return recordMap.get(resolved) || recordMap.get(decodePath(resolved)) || null;
+  };
+
+  const recordToDataUri = (record) => {
+    const type = record.mimetype || mime.lookup(record.relativePath) || "application/octet-stream";
+    return bufferToDataUri(record.buffer, type);
+  };
+
+  const inlineLocalCss = async (css, cssEntryPath) => {
+    const replacements = [];
+    let match;
+    const regex = cssUrlRegex();
+    while ((match = regex.exec(css)) !== null) {
+      const record = getRecord(match[2].trim(), cssEntryPath);
+      if (record) replacements.push({ original: match[0], dataUri: recordToDataUri(record) });
+    }
+
+    let next = css;
+    for (const replacement of replacements) {
+      next = next.split(replacement.original).join(`url("${replacement.dataUri}")`);
+    }
+    return next;
+  };
+
+  $("base").remove();
+  $("script").remove();
+  $("meta[http-equiv]").each((_, node) => {
+    const value = String($(node).attr("http-equiv") || "").toLowerCase();
+    if (value === "refresh" || value === "content-security-policy") $(node).remove();
+  });
+  $("meta[charset]").remove();
+  $("head").prepend("<meta charset=\"utf-8\">");
+  if (!$("meta[name='viewport']").length) {
+    $("head").append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+  }
+  $("head").append("<meta name=\"generator\" content=\"webpocket imported-single-html\">");
+
+  const styleNodes = $("style").toArray();
+  for (const node of styleNodes) {
+    const el = $(node);
+    el.text(await inlineLocalCss(el.html() || "", htmlEntryPath));
+  }
+
+  const stylesheetLinks = $("link[rel~='stylesheet'][href]").toArray();
+  for (const node of stylesheetLinks) {
+    const el = $(node);
+    const record = getRecord(el.attr("href"), htmlEntryPath);
+    if (!record) continue;
+    const css = await inlineLocalCss(record.buffer.toString("utf8"), record.relativePath);
+    el.replaceWith(`<style data-webpocket-source="${escapeHtml(record.relativePath)}">\n${css}\n</style>`);
+  }
+
+  inlineLocalAttribute($, "img", "src", htmlEntryPath, getRecord, recordToDataUri);
+  inlineLocalAttribute($, "source", "src", htmlEntryPath, getRecord, recordToDataUri);
+  inlineLocalAttribute($, "video", "poster", htmlEntryPath, getRecord, recordToDataUri);
+  inlineLocalAttribute($, "link[rel~='icon']", "href", htmlEntryPath, getRecord, recordToDataUri);
+  inlineLocalAttribute($, "link[rel='apple-touch-icon']", "href", htmlEntryPath, getRecord, recordToDataUri);
+  inlineLocalSrcset($, "img", htmlEntryPath, getRecord, recordToDataUri);
+  inlineLocalSrcset($, "source", htmlEntryPath, getRecord, recordToDataUri);
+
+  return {
+    title,
+    html: $.html()
+  };
+}
+
+function inlineLocalAttribute($, selector, attr, htmlEntryPath, getRecord, recordToDataUri) {
+  $(`${selector}[${attr}]`).each((_, node) => {
+    const el = $(node);
+    const record = getRecord(el.attr(attr), htmlEntryPath);
+    if (record) el.attr(attr, recordToDataUri(record));
+  });
+}
+
+function inlineLocalSrcset($, selector, htmlEntryPath, getRecord, recordToDataUri) {
+  $(`${selector}[srcset]`).each((_, node) => {
+    const el = $(node);
+    const candidates = String(el.attr("srcset") || "")
+      .split(",")
+      .map((candidate) => candidate.trim())
+      .filter(Boolean);
+    const next = candidates.map((candidate) => {
+      const parts = candidate.split(/\s+/);
+      const record = getRecord(parts[0], htmlEntryPath);
+      return record ? [recordToDataUri(record), ...parts.slice(1)].join(" ") : candidate;
+    });
+    if (next.length) el.attr("srcset", next.join(", "));
+  });
+}
+
+function resolveLocalResourcePath(resource, baseEntryPath) {
+  if (!resource || /^(?:https?:|data:|mailto:|tel:|blob:|#)/i.test(resource)) return "";
+  const clean = decodePath(String(resource).split("#")[0].split("?")[0]);
+  const baseDir = path.posix.dirname(normalizeUploadPath(baseEntryPath));
+  return normalizeUploadPath(path.posix.join(baseDir, clean));
+}
+
+function decodePath(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function normalizeUploadPath(originalName) {

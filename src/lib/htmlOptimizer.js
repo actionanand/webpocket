@@ -54,6 +54,33 @@ function removeOfflineBreakingMeta($) {
   });
 }
 
+function removeAdAndSponsoredBlocks($) {
+  const adPattern = /(^|[-_\s])(ad|ads|advert|advertisement|sponsor|sponsored|promoted|promo|outbrain|taboola|doubleclick|googlesyndication|adservice|adunit|ad-container|ad-wrapper)([-_\s]|$)/i;
+
+  $("[id], [class], [aria-label], [data-ad], [data-testid], [role='complementary']").each((_, node) => {
+    const el = $(node);
+    const haystack = [
+      el.attr("id"),
+      el.attr("class"),
+      el.attr("aria-label"),
+      el.attr("data-testid"),
+      el.attr("data-ad")
+    ].filter(Boolean).join(" ");
+
+    if (adPattern.test(haystack)) {
+      el.remove();
+    }
+  });
+
+  $("iframe[src], img[src], a[href]").each((_, node) => {
+    const el = $(node);
+    const source = el.attr("src") || el.attr("href") || "";
+    if (/doubleclick|googlesyndication|googleadservices|adservice|taboola|outbrain|adnxs|adsystem|advertising/i.test(source)) {
+      el.remove();
+    }
+  });
+}
+
 function rewriteLinks($, baseUrl) {
   $("[href]").each((_, node) => {
     const el = $(node);
@@ -137,6 +164,7 @@ function optimizeSingleHtml(html, { baseUrl = "", titleFallback = "Saved page" }
 
   removeOfflineBreakingMeta($);
   removeHeavyAndTrackingNodes($);
+  removeAdAndSponsoredBlocks($);
   rewriteLinks($, baseUrl);
   replaceImagesWithText($, baseUrl);
   $("link[rel='stylesheet']").remove();

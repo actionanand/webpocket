@@ -30,6 +30,19 @@ function pageDir(id) {
   return path.join(config.pagesDir, clean);
 }
 
+function formatBytes(bytes = 0) {
+  const value = Number(bytes || 0);
+  if (value < 1024) return `${value} B`;
+  const units = ["KB", "MB", "GB"];
+  let size = value / 1024;
+  let unit = units[0];
+  for (let index = 1; index < units.length && size >= 1024; index += 1) {
+    size /= 1024;
+    unit = units[index];
+  }
+  return `${size >= 10 ? size.toFixed(1) : size.toFixed(2)} ${unit}`;
+}
+
 async function createPage({ title, sourceUrl, kind, contentEntry = "index.html" }) {
   await ensureStorage();
   const id = createId();
@@ -43,6 +56,7 @@ async function createPage({ title, sourceUrl, kind, contentEntry = "index.html" 
     sourceUrl: sourceUrl || "",
     kind: kind || "html",
     contentEntry,
+    sizeBytes: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -54,9 +68,14 @@ async function createPage({ title, sourceUrl, kind, contentEntry = "index.html" 
 async function writeMetadata(id, metadata) {
   const dir = pageDir(id);
   await fs.mkdir(dir, { recursive: true });
+  const next = {
+    ...metadata,
+    sizeBytes: Number(metadata.sizeBytes || 0),
+    updatedAt: new Date().toISOString()
+  };
   await fs.writeFile(
     path.join(dir, "metadata.json"),
-    JSON.stringify({ ...metadata, updatedAt: new Date().toISOString() }, null, 2)
+    JSON.stringify(next, null, 2)
   );
 }
 
@@ -73,7 +92,8 @@ async function listPages() {
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     try {
-      pages.push(await readMetadata(entry.name));
+      const metadata = await readMetadata(entry.name);
+      pages.push(metadata.sizeBytes ? metadata : await updatePageSize(entry.name));
     } catch {
       // Ignore partial imports instead of breaking the whole library page.
     }
@@ -115,6 +135,33 @@ async function pageExists(id) {
   }
 }
 
+async function deletePage(id) {
+  const dir = pageDir(id);
+  await fs.rm(dir, { recursive: true, force: true });
+}
+
+async function directorySize(dir) {
+  let total = 0;
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const abs = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      total += await directorySize(abs);
+    } else {
+      total += (await fs.stat(abs)).size;
+    }
+  }
+  return total;
+}
+
+async function updatePageSize(id) {
+  const metadata = await readMetadata(id);
+  const contentDir = path.join(pageDir(id), "content");
+  metadata.sizeBytes = await directorySize(contentDir);
+  await writeMetadata(id, metadata);
+  return metadata;
+}
+
 async function zipContent(id) {
   const metadata = await readMetadata(id);
   const contentDir = path.join(pageDir(id), "content");
@@ -141,12 +188,15 @@ async function zipContent(id) {
 module.exports = {
   ensureStorage,
   safeName,
+  formatBytes,
   createPage,
   writeMetadata,
   readMetadata,
   listPages,
   pageDir,
   pageExists,
+  deletePage,
+  updatePageSize,
   resolveInside,
   writeContentFile,
   getContentFile,
