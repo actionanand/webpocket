@@ -76,7 +76,108 @@ async function readResponseWithLimit(response, maxBytes) {
   return Buffer.concat(chunks);
 }
 
-async function fetchWithLimit(url, maxBytes) {
+function parseJsonObject(value, label) {
+  if (!String(value || "").trim()) return {};
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error(`${label} must be valid JSON.`);
+  }
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+    throw new Error(`${label} must be a JSON object.`);
+  }
+  return parsed;
+}
+
+function normalizeHeaderName(name) {
+  const normalized = String(name || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (!/^[!#$%&'*+.^_`|~0-9a-z-]+$/.test(normalized)) {
+    throw new Error(`Invalid header name: ${name}`);
+  }
+  return normalized;
+}
+
+function stringifyHeaderValue(value) {
+  if (typeof value === "string") return value;
+  if (value === null || typeof value === "undefined") return "";
+  return JSON.stringify(value);
+}
+
+
+function headerValueFromTemplate(value, localStorageEntries) {
+  const stringValue = stringifyHeaderValue(value);
+  return stringValue.replace(/\{\{\s*(?:localStorage\.)?([\w.-]+)\s*\}\}/g, (_, key) => {
+    return Object.prototype.hasOwnProperty.call(localStorageEntries, key) ? localStorageEntries[key] : "";
+  });
+}
+
+function normalizeCookieHeader(cookies) {
+  const raw = String(cookies || "").trim();
+  if (!raw) return "";
+  if (/\r|\n/.test(raw)) throw new Error("Cookie header cannot contain line breaks.");
+  return raw;
+}
+
+function localStorageEntriesFromJson(rawJson) {
+  const parsed = parseJsonObject(rawJson, "Local storage JSON");
+  return Object.fromEntries(Object.entries(parsed).map(([key, value]) => [
+    String(key),
+    typeof value === "string" ? value : JSON.stringify(value)
+  ]));
+}
+
+function findTokenInLocalStorage(localStorageEntries) {
+  const tokenKeyPattern = /(^|[_-])(access[_-]?token|auth[_-]?token|id[_-]?token|jwt|token)([_-]|$)/i;
+  for (const [key, value] of Object.entries(localStorageEntries)) {
+    if (tokenKeyPattern.test(key) && String(value || "").trim()) return String(value).trim();
+  }
+  return "";
+}
+
+function buildCaptureOptions(input = {}) {
+  const localStorageEntries = localStorageEntriesFromJson(input.localStorageJson || "");
+  const customHeaders = parseJsonObject(input.headersJson || "", "Request headers JSON");
+  const headers = {};
+
+  for (const [name, value] of Object.entries(customHeaders)) {
+    const normalized = normalizeHeaderName(name);
+    if (!normalized) continue;
+    if (["host", "connection", "content-length", "transfer-encoding"].includes(normalized)) continue;
+    headers[normalized] = headerValueFromTemplate(value, localStorageEntries);
+  }
+
+  const token = String(input.bearerToken || "").trim() || findTokenInLocalStorage(localStorageEntries);
+  if (token && !headers.authorization) {
+    headers.authorization = /^bearer\s+/i.test(token) ? token : `Bearer ${token}`;
+  }
+
+  const cookie = normalizeCookieHeader(input.cookies || "");
+  if (cookie && !headers.cookie) headers.cookie = cookie;
+
+  return {
+    headers,
+    localStorageEntries,
+    sendAuthToAllHosts: input.sendAuthToAllHosts === true || input.sendAuthToAllHosts === "on"
+  };
+}
+
+function headersForRequest(authOptions = {}, requestUrl, firstPartyOrigin = "") {
+  const headers = { ...(authOptions.headers || {}) };
+  if (!Object.keys(headers).length) return headers;
+  if (authOptions.sendAuthToAllHosts) return headers;
+
+  let requestOrigin = "";
+  try {
+    requestOrigin = new URL(requestUrl).origin;
+  } catch {
+    return {};
+  }
+  return !firstPartyOrigin || requestOrigin === firstPartyOrigin ? headers : {};
+}
+
+async function fetchWithLimit(url, maxBytes, authOptions = {}, firstPartyOrigin = "") {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
   try {
@@ -85,7 +186,8 @@ async function fetchWithLimit(url, maxBytes) {
       signal: controller.signal,
       headers: {
         "user-agent": "webpocket/0.1 offline reader",
-        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        ...headersForRequest(authOptions, url, firstPartyOrigin)
       }
     });
     if (!response.ok) throw new Error(`Request failed with status ${response.status}.`);
@@ -132,9 +234,9 @@ async function inlineCssAssets(css, cssBaseUrl, fetchAssetAsDataUri) {
   return next;
 }
 
-async function fetchHtml(url) {
+async function fetchHtml(url, authOptions = {}) {
   const publicUrl = await validateReachablePublicUrl(url);
-  const response = await fetchWithLimit(publicUrl, config.limits.maxHtmlBytes);
+  const response = await fetchWithLimit(publicUrl, config.limits.maxHtmlBytes, authOptions, new URL(publicUrl).origin);
   if (!response.contentType.includes("text/html") && !response.contentType.includes("application/xhtml")) {
     throw new Error("The URL did not return an HTML page.");
   }
@@ -152,7 +254,7 @@ function assetPathForUrl(url) {
   return `assets/${hash}-${name}`;
 }
 
-async function collectLocalAssets(html, finalUrl, writeAsset) {
+async function collectLocalAssets(html, finalUrl, writeAsset, authOptions = {}) {
   const initialAssetUrls = findAssetUrls(html, finalUrl, { full: true })
     .slice(0, config.limits.maxAssetsPerPage);
   const assetMap = new Map();
@@ -167,7 +269,7 @@ async function collectLocalAssets(html, finalUrl, writeAsset) {
 
     try {
       await validateReachablePublicUrl(assetUrl);
-      const response = await fetchWithLimit(assetUrl, config.limits.maxAssetBytes);
+      const response = await fetchWithLimit(assetUrl, config.limits.maxAssetBytes, authOptions, new URL(finalUrl).origin);
       totalBytes += response.buffer.length;
       if (totalBytes > config.limits.maxTotalAssetBytes) {
         throw new Error("Asset budget reached.");
@@ -235,19 +337,19 @@ async function rewriteCssForLocalAssets(css, cssBaseUrl, cssLocalPath, ensureAss
   return next;
 }
 
-async function captureOptimizedHtml(url) {
-  const { finalUrl, html } = await fetchHtml(url);
+async function captureOptimizedHtml(url, authOptions = {}) {
+  const { finalUrl, html } = await fetchHtml(url, authOptions);
   return optimizeSingleHtml(html, { baseUrl: finalUrl, titleFallback: finalUrl });
 }
 
-async function captureSinglePageHtml(url) {
-  const { finalUrl, html } = await fetchHtml(url);
-  return buildSinglePageHtml(html, finalUrl);
+async function captureSinglePageHtml(url, authOptions = {}) {
+  const { finalUrl, html } = await fetchHtml(url, authOptions);
+  return buildSinglePageHtml(html, finalUrl, authOptions);
 }
 
-async function saveSinglePage(url) {
-  const { finalUrl, html } = await fetchHtml(url);
-  const singlePage = await buildSinglePageHtml(html, finalUrl);
+async function saveSinglePage(url, authOptions = {}) {
+  const { finalUrl, html } = await fetchHtml(url, authOptions);
+  const singlePage = await buildSinglePageHtml(html, finalUrl, authOptions);
   const page = await storage.createPage({
     title: singlePage.title,
     sourceUrl: finalUrl,
@@ -257,7 +359,7 @@ async function saveSinglePage(url) {
   return storage.updatePageSize(page.id);
 }
 
-async function buildSinglePageHtml(html, finalUrl) {
+async function buildSinglePageHtml(html, finalUrl, authOptions = {}) {
   const $ = cheerio.load(html, { decodeEntities: false });
   const title = readableTitle($, finalUrl);
   const dataUriCache = new Map();
@@ -266,7 +368,7 @@ async function buildSinglePageHtml(html, finalUrl) {
   async function fetchAssetAsDataUri(assetUrl) {
     if (dataUriCache.has(assetUrl)) return dataUriCache.get(assetUrl);
     await validateReachablePublicUrl(assetUrl);
-    const response = await fetchWithLimit(assetUrl, config.limits.maxAssetBytes);
+    const response = await fetchWithLimit(assetUrl, config.limits.maxAssetBytes, authOptions, new URL(finalUrl).origin);
     totalBytes += response.buffer.length;
     if (totalBytes > config.limits.maxTotalAssetBytes) {
       throw new Error("Asset budget reached.");
@@ -311,7 +413,7 @@ async function buildSinglePageHtml(html, finalUrl) {
     const href = absoluteUrl(el.attr("href"), finalUrl);
     if (!href) continue;
     try {
-      const response = await fetchWithLimit(href, config.limits.maxAssetBytes);
+      const response = await fetchWithLimit(href, config.limits.maxAssetBytes, authOptions, new URL(finalUrl).origin);
       const css = await inlineCssAssets(response.buffer.toString("utf8"), response.finalUrl || href, fetchAssetAsDataUri);
       el.replaceWith(`<style data-webpocket-source="${escapeHtml(href)}">\n${css}\n</style>`);
     } catch {
@@ -384,8 +486,8 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;");
 }
 
-async function saveOptimizedPage(url) {
-  const { finalUrl, html } = await fetchHtml(url);
+async function saveOptimizedPage(url, authOptions = {}) {
+  const { finalUrl, html } = await fetchHtml(url, authOptions);
   const optimized = optimizeSingleHtml(html, { baseUrl: finalUrl, titleFallback: finalUrl });
   const page = await storage.createPage({
     title: optimized.title,
@@ -396,12 +498,12 @@ async function saveOptimizedPage(url) {
   return storage.updatePageSize(page.id);
 }
 
-async function captureZipBuffer(url) {
-  const { finalUrl, html } = await fetchHtml(url);
+async function captureZipBuffer(url, authOptions = {}) {
+  const { finalUrl, html } = await fetchHtml(url, authOptions);
   const zip = new AdmZip();
   const assetMap = await collectLocalAssets(html, finalUrl, async (localPath, buffer) => {
     zip.addFile(localPath, buffer);
-  });
+  }, authOptions);
 
   const rewritten = rewriteForLocalAssetsFull(html, {
     baseUrl: finalUrl,
@@ -424,8 +526,8 @@ async function captureZipBuffer(url) {
   };
 }
 
-async function saveZipCapture(url) {
-  const { finalUrl, html } = await fetchHtml(url);
+async function saveZipCapture(url, authOptions = {}) {
+  const { finalUrl, html } = await fetchHtml(url, authOptions);
   const page = await storage.createPage({
     title: finalUrl,
     sourceUrl: finalUrl,
@@ -433,7 +535,7 @@ async function saveZipCapture(url) {
   });
   const assetMap = await collectLocalAssets(html, finalUrl, async (localPath, buffer) => {
     await storage.writeContentFile(page.id, localPath, buffer);
-  });
+  }, authOptions);
 
   const rewritten = rewriteForLocalAssetsFull(html, {
     baseUrl: finalUrl,
@@ -663,6 +765,7 @@ function normalizeUploadPath(originalName) {
 }
 
 module.exports = {
+  buildCaptureOptions,
   captureOptimizedHtml,
   captureSinglePageHtml,
   captureZipBuffer,

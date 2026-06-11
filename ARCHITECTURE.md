@@ -103,7 +103,7 @@ Tradeoff: same reduced fidelity as `Optimize Save`.
 
 Implemented in `src/lib/capture.js`.
 
-The app fetches the source HTML, parses it with Cheerio, removes offline-breaking metadata and scripts, then tries to inline:
+The app fetches the source HTML, optionally applying one-time authenticated capture headers/cookies from the form, parses it with Cheerio, removes offline-breaking metadata and scripts, then tries to inline:
 
 - Stylesheets
 - Images
@@ -124,6 +124,14 @@ The app fetches known assets and rewrites links so `index.html` points to files 
 Implemented in `src/lib/htmlOptimizer.js`.
 
 The optimizer creates a smaller reading copy by stripping heavy or interactive elements. This mode exists because full-page saving and low-data reading are different goals.
+
+### Authenticated URL Capture
+
+Implemented in `src/app.js` and `src/lib/capture.js`.
+
+The capture form can accept a bearer token, raw cookie header, request headers JSON, and local-storage-style JSON. `src/app.js` converts those fields into capture options for every URL capture/download action. `src/lib/capture.js` validates the JSON, blocks unsafe hop-by-hop headers, can derive `Authorization: Bearer ...` from token-like local storage keys, and lets custom header values reference local storage values with templates such as `{{localStorage.accessToken}}`.
+
+By default, these authenticated headers are sent only to the requested page origin and same-origin assets. The cross-origin assets checkbox intentionally broadens that behavior for trusted domains, such as private asset CDNs, where the same token is required.
 
 ## Storage Model
 
@@ -229,7 +237,7 @@ The app does not ship a web app manifest or caching service worker while it is u
 ## Current Limitations
 
 - JavaScript-rendered pages may not capture perfectly because the app fetches server HTML instead of using a real browser rendering engine.
-- Sites that block server-side fetches or require login may return an error page.
+- Sites that block server-side fetches, depend on browser-only login flows, or render protected content only after client-side JavaScript runs may return an error page or an empty shell.
 - Some assets may be skipped if they exceed configured size limits.
 - Full single-page HTML can become large when many images or fonts are embedded.
 

@@ -5,6 +5,7 @@ const multer = require("multer");
 const config = require("./config");
 const storage = require("./lib/storage");
 const {
+  buildCaptureOptions,
   captureOptimizedHtml,
   captureSinglePageHtml,
   captureZipBuffer,
@@ -29,7 +30,7 @@ app.set("views", config.viewsDir);
 app.locals.appName = config.appName;
 app.locals.formatBytes = storage.formatBytes;
 
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: "256kb" }));
 
 function isDocumentRequest(req) {
   if (req.method !== "GET") return false;
@@ -103,9 +104,16 @@ app.get("/library", asyncRoute(async (req, res) => {
 app.post("/capture", asyncRoute(async (req, res) => {
   const url = String(req.body.url || "").trim();
   const action = req.body.action || "save-single";
+  const captureOptions = buildCaptureOptions({
+    bearerToken: req.body.bearerToken,
+    cookies: req.body.cookies,
+    headersJson: req.body.headersJson,
+    localStorageJson: req.body.localStorageJson,
+    sendAuthToAllHosts: req.body.sendAuthToAllHosts
+  });
 
   if (action === "download-html") {
-    const page = await captureSinglePageHtml(url);
+    const page = await captureSinglePageHtml(url, captureOptions);
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("content-disposition", `attachment; filename="${downloadName(page.title, "html")}"`);
     res.send(page.html);
@@ -113,7 +121,7 @@ app.post("/capture", asyncRoute(async (req, res) => {
   }
 
   if (action === "download-optimized") {
-    const page = await captureOptimizedHtml(url);
+    const page = await captureOptimizedHtml(url, captureOptions);
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("content-disposition", `attachment; filename="${downloadName(page.title, "html")}"`);
     res.send(page.html);
@@ -121,7 +129,7 @@ app.post("/capture", asyncRoute(async (req, res) => {
   }
 
   if (action === "download-zip") {
-    const page = await captureZipBuffer(url);
+    const page = await captureZipBuffer(url, captureOptions);
     res.setHeader("content-type", "application/zip");
     res.setHeader("content-disposition", `attachment; filename="${downloadName(page.title, "zip")}"`);
     res.send(page.buffer);
@@ -129,10 +137,10 @@ app.post("/capture", asyncRoute(async (req, res) => {
   }
 
   const metadata = action === "save-optimized"
-    ? await saveOptimizedPage(url)
+    ? await saveOptimizedPage(url, captureOptions)
     : action === "save-with-assets"
-      ? await saveZipCapture(url)
-      : await saveSinglePage(url);
+      ? await saveZipCapture(url, captureOptions)
+      : await saveSinglePage(url, captureOptions);
   res.redirect(`/reader/${metadata.id}`);
 }));
 

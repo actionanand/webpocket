@@ -33,7 +33,8 @@ a {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -208,7 +209,8 @@ h2 {
   font-weight: 700;
 }
 
-.field input {
+.field input,
+.field textarea {
   width: 100%;
   min-height: 50px;
   border: 1px solid #cdd8d4;
@@ -219,9 +221,64 @@ h2 {
   outline: none;
 }
 
-.field input:focus {
+.field input:focus,
+.field textarea:focus {
   border-color: var(--teal);
   box-shadow: 0 0 0 4px rgba(0, 109, 119, 0.12);
+}
+
+.field textarea {
+  min-height: 112px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  line-height: 1.45;
+}
+
+.field-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.auth-options {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfa;
+}
+
+.auth-options summary {
+  color: var(--teal-dark);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.auth-options[open] {
+  display: grid;
+  gap: 12px;
+}
+
+.auth-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.checkbox-field input {
+  width: auto;
+  min-height: auto;
+  margin-top: 3px;
 }
 
 .action-grid {
